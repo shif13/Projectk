@@ -13,3 +13,4 @@ router.get('/profile', authMiddleware, getUserProfile);
 // PUT /api/dashboard/profile - Update user profile
 router.put('/profile', authMiddleware, uploadFields, updateUserProfile);
 
+module.exports = router;
