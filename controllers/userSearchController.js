@@ -1,16 +1,231 @@
 const { db } = require('../config/db');
 
+// Helper function for hierarchical location matching
+const buildLocationQuery = (searchLocation) => {
+  if (!searchLocation || !searchLocation.trim()) {
+    return { condition: '', params: [] };
+  }
+
+  const location = searchLocation.trim().toLowerCase();
+  
+  // Define country-level mappings that include ALL their sub-locations
+  const countryMappings = {
+    'india': ['india', 'indian', 'tamil nadu', 'tn', 'chennai', 'coimbatore', 'madurai', 'salem', 'tirupur', 'erode', 'vellore', 'tiruchirappalli', 'trichy', 'karnataka', 'bangalore', 'bengaluru', 'mysore', 'mysuru', 'mangalore', 'mangaluru', 'hubli', 'belgaum', 'dharwad', 'maharashtra', 'mumbai', 'pune', 'nagpur', 'nashik', 'aurangabad', 'solapur', 'thane', 'kalyan', 'delhi', 'new delhi', 'ncr', 'gurgaon', 'gurugram', 'noida', 'faridabad', 'ghaziabad', 'greater noida', 'west bengal', 'kolkata', 'calcutta', 'howrah', 'durgapur', 'siliguri', 'gujarat', 'ahmedabad', 'surat', 'vadodara', 'baroda', 'rajkot', 'bhavnagar', 'gandhinagar', 'rajasthan', 'jaipur', 'jodhpur', 'udaipur', 'kota', 'ajmer', 'bikaner', 'uttar pradesh', 'up', 'lucknow', 'kanpur', 'agra', 'varanasi', 'meerut', 'allahabad', 'prayagraj', 'bareilly', 'andhra pradesh', 'ap', 'vijayawada', 'visakhapatnam', 'vizag', 'guntur', 'tirupati', 'telangana', 'hyderabad', 'warangal', 'nizamabad', 'secunderabad', 'kerala', 'kochi', 'cochin', 'thiruvananthapuram', 'kozhikode', 'calicut', 'kottayam', 'thrissur', 'punjab', 'chandigarh', 'ludhiana', 'amritsar', 'jalandhar', 'patiala', 'haryana', 'panipat', 'ambala', 'karnal', 'odisha', 'orissa', 'bhubaneswar', 'cuttack', 'rourkela', 'brahmapur', 'jharkhand', 'ranchi', 'jamshedpur', 'dhanbad', 'bokaro', 'assam', 'guwahati', 'dibrugarh', 'silchar', 'jorhat', 'madhya pradesh', 'mp', 'bhopal', 'indore', 'jabalpur', 'gwalior', 'ujjain', 'chhattisgarh', 'raipur', 'bhilai', 'bilaspur', 'uttarakhand', 'dehradun', 'haridwar', 'roorkee', 'nainital', 'himachal pradesh', 'hp', 'shimla', 'dharamshala', 'manali', 'jammu and kashmir', 'j&k', 'srinagar', 'jammu', 'goa', 'panaji', 'margao', 'vasco', 'bihar', 'patna', 'gaya', 'muzaffarpur', 'bhagalpur', 'tripura', 'agartala', 'meghalaya', 'shillong', 'manipur', 'imphal', 'nagaland', 'kohima', 'mizoram', 'aizawl', 'arunachal pradesh', 'itanagar', 'sikkim', 'gangtok']
+  };
+  
+  // Check if searching for a country
+  if (countryMappings[location]) {
+    const matchingLocations = countryMappings[location];
+    const conditions = matchingLocations.map(() => 'LOWER(u.location) LIKE ?').join(' OR ');
+    const params = matchingLocations.map(loc => `%${loc}%`);
+    return {
+      condition: `(${conditions})`,
+      params: params
+    };
+  }
+  
+  // Define location hierarchy mapping for states and cities
+  const locationHierarchy = {
+    // Countries (fallback if not in countryMappings)
+    'usa': ['usa', 'united states', 'america', 'us'],
+    'canada': ['canada', 'canadian'],
+    'uk': ['uk', 'united kingdom', 'britain', 'british'],
+    'australia': ['australia', 'australian'],
+    'germany': ['germany', 'german'],
+    'singapore': ['singapore'],
+    'uae': ['uae', 'dubai', 'abu dhabi', 'united arab emirates'],
+    'usa': ['usa', 'united states', 'america', 'us'],
+    'canada': ['canada', 'canadian'],
+    'uk': ['uk', 'united kingdom', 'britain', 'british'],
+    'australia': ['australia', 'australian'],
+    'germany': ['germany', 'german'],
+    'uae': ['uae', 'dubai', 'abu dhabi', 'united arab emirates'],
+    
+    // Indian states and major cities
+    'tamil nadu': ['tamil nadu', 'tn', 'chennai', 'coimbatore', 'madurai', 'salem', 'tirupur', 'erode', 'vellore', 'tiruchirappalli', 'trichy'],
+    'karnataka': ['karnataka', 'bangalore', 'bengaluru', 'mysore', 'mysuru', 'mangalore', 'mangaluru', 'hubli', 'belgaum', 'dharwad'],
+    'maharashtra': ['maharashtra', 'mumbai', 'pune', 'nagpur', 'nashik', 'aurangabad', 'solapur', 'thane', 'kalyan'],
+    'delhi': ['delhi', 'new delhi', 'ncr', 'gurgaon', 'gurugram', 'noida', 'faridabad', 'ghaziabad', 'greater noida'],
+    'west bengal': ['west bengal', 'kolkata', 'calcutta', 'howrah', 'durgapur', 'siliguri'],
+    'gujarat': ['gujarat', 'ahmedabad', 'surat', 'vadodara', 'baroda', 'rajkot', 'bhavnagar', 'gandhinagar'],
+    'rajasthan': ['rajasthan', 'jaipur', 'jodhpur', 'udaipur', 'kota', 'ajmer', 'bikaner'],
+    'uttar pradesh': ['uttar pradesh', 'up', 'lucknow', 'kanpur', 'agra', 'varanasi', 'meerut', 'allahabad', 'prayagraj', 'bareilly'],
+    'andhra pradesh': ['andhra pradesh', 'ap', 'vijayawada', 'visakhapatnam', 'vizag', 'guntur', 'tirupati'],
+    'telangana': ['telangana', 'hyderabad', 'warangal', 'nizamabad', 'secunderabad'],
+    'kerala': ['kerala', 'kochi', 'cochin', 'thiruvananthapuram', 'kozhikode', 'calicut', 'kottayam', 'thrissur'],
+    'punjab': ['punjab', 'chandigarh', 'ludhiana', 'amritsar', 'jalandhar', 'patiala'],
+    'haryana': ['haryana', 'gurgaon', 'gurugram', 'faridabad', 'panipat', 'ambala', 'karnal'],
+    'odisha': ['odisha', 'orissa', 'bhubaneswar', 'cuttack', 'rourkela', 'brahmapur'],
+    'jharkhand': ['jharkhand', 'ranchi', 'jamshedpur', 'dhanbad', 'bokaro'],
+    'assam': ['assam', 'guwahati', 'dibrugarh', 'silchar', 'jorhat'],
+    'madhya pradesh': ['madhya pradesh', 'mp', 'bhopal', 'indore', 'jabalpur', 'gwalior', 'ujjain'],
+    'chhattisgarh': ['chhattisgarh', 'raipur', 'bhilai', 'bilaspur'],
+    'uttarakhand': ['uttarakhand', 'dehradun', 'haridwar', 'roorkee', 'nainital'],
+    'himachal pradesh': ['himachal pradesh', 'hp', 'shimla', 'dharamshala', 'manali'],
+    'jammu and kashmir': ['jammu and kashmir', 'j&k', 'srinagar', 'jammu'],
+    'goa': ['goa', 'panaji', 'margao', 'vasco'],
+    'bihar': ['bihar', 'patna', 'gaya', 'muzaffarpur', 'bhagalpur'],
+    'tripura': ['tripura', 'agartala'],
+    'meghalaya': ['meghalaya', 'shillong'],
+    'manipur': ['manipur', 'imphal'],
+    'nagaland': ['nagaland', 'kohima'],
+    'mizoram': ['mizoram', 'aizawl'],
+    'arunachal pradesh': ['arunachal pradesh', 'itanagar'],
+    'sikkim': ['sikkim', 'gangtok'],
+    
+    // Major cities that might be searched independently
+    'bangalore': ['bangalore', 'bengaluru', 'whitefield', 'electronic city', 'koramangala', 'indiranagar'],
+    'mumbai': ['mumbai', 'bombay', 'navi mumbai', 'thane', 'kalyan', 'bandra', 'andheri'],
+    'chennai': ['chennai', 'madras', 'tambaram', 'velachery', 'omr', 'it corridor'],
+    'hyderabad': ['hyderabad', 'secunderabad', 'hitec city', 'gachibowli', 'kondapur'],
+    'pune': ['pune', 'pimpri', 'chinchwad', 'hinjewadi', 'wakad', 'baner'],
+    'kolkata': ['kolkata', 'calcutta', 'howrah', 'salt lake', 'new town'],
+    'ahmedabad': ['ahmedabad', 'gandhinagar', 'bopal', 'sg highway'],
+    'jaipur': ['jaipur', 'pink city'],
+    'surat': ['surat', 'diamond city'],
+    'lucknow': ['lucknow', 'gomti nagar'],
+    'kanpur': ['kanpur', 'kanpur nagar'],
+    'nagpur': ['nagpur'],
+    'indore': ['indore'],
+    'thane': ['thane', 'kalyan', 'dombivli'],
+    'bhopal': ['bhopal'],
+    'visakhapatnam': ['visakhapatnam', 'vizag'],
+    'vadodara': ['vadodara', 'baroda'],
+    'ghaziabad': ['ghaziabad', 'indirapuram', 'vaishali'],
+    'ludhiana': ['ludhiana'],
+    'agra': ['agra'],
+    'nashik': ['nashik'],
+    'faridabad': ['faridabad'],
+    'meerut': ['meerut'],
+    'rajkot': ['rajkot'],
+    'varanasi': ['varanasi', 'benaras', 'kashi'],
+    'srinagar': ['srinagar'],
+    'aurangabad': ['aurangabad'],
+    'dhanbad': ['dhanbad'],
+    'amritsar': ['amritsar'],
+    'allahabad': ['allahabad', 'prayagraj'],
+    'ranchi': ['ranchi'],
+    'howrah': ['howrah'],
+    'coimbatore': ['coimbatore', 'kovai'],
+    'jabalpur': ['jabalpur'],
+    'gwalior': ['gwalior'],
+    'vijayawada': ['vijayawada', 'bezawada'],
+    'jodhpur': ['jodhpur', 'blue city'],
+    'madurai': ['madurai', 'temple city'],
+    'raipur': ['raipur'],
+    'kota': ['kota'],
+    'chandigarh': ['chandigarh', 'tricity'],
+    'guwahati': ['guwahati'],
+    'solapur': ['solapur'],
+    'hubli': ['hubli', 'hubli-dharwad', 'dharwad'],
+    'tiruchirappalli': ['tiruchirappalli', 'trichy'],
+    'bareilly': ['bareilly'],
+    'mysore': ['mysore', 'mysuru'],
+    'tiruppur': ['tiruppur'],
+    'gurgaon': ['gurgaon', 'gurugram', 'cyber city', 'udyog vihar'],
+    'noida': ['noida', 'greater noida', 'noida extension'],
+    'mangalore': ['mangalore', 'mangaluru'],
+    'salem': ['salem'],
+    'erode': ['erode'],
+    'vellore': ['vellore'],
+    'guntur': ['guntur'],
+    'bhilai': ['bhilai'],
+    'warangal': ['warangal'],
+    'firozabad': ['firozabad'],
+    'kochi': ['kochi', 'cochin', 'ernakulam'],
+    'bhavnagar': ['bhavnagar'],
+    'dehradun': ['dehradun', 'doon'],
+    'durgapur': ['durgapur'],
+    'asansol': ['asansol'],
+    'nanded': ['nanded'],
+    'kolhapur': ['kolhapur'],
+    'ajmer': ['ajmer'],
+    'jamnagar': ['jamnagar'],
+    'ujjain': ['ujjain'],
+    'sangli': ['sangli'],
+    'malegaon': ['malegaon'],
+    'jalgaon': ['jalgaon'],
+    'akola': ['akola'],
+    'latur': ['latur'],
+    'dhule': ['dhule'],
+    'ahmednagar': ['ahmednagar'],
+    'ichalkaranji': ['ichalkaranji'],
+    'chandrapur': ['chandrapur'],
+    'parbhani': ['parbhani'],
+    'jalna': ['jalna'],
+    'ambattur': ['ambattur'],
+    'tirunelveli': ['tirunelveli', 'nellai'],
+    'thanjavur': ['thanjavur', 'tanjore'],
+    'tuticorin': ['tuticorin', 'thoothukudi'],
+    'avadi': ['avadi'],
+    'dindigul': ['dindigul'],
+    'karur': ['karur'],
+    'cuddalore': ['cuddalore'],
+    'kumbakonam': ['kumbakonam'],
+    'hosur': ['hosur'],
+    'rajahmundry': ['rajahmundry', 'rajamahendravaram'],
+    'kadapa': ['kadapa', 'cuddapah'],
+    'karimnagar': ['karimnagar'],
+    'ramagundam': ['ramagundam'],
+    'khammam': ['khammam'],
+    'mahbubnagar': ['mahbubnagar'],
+    'nalgonda': ['nalgonda'],
+    'adilabad': ['adilabad'],
+    'suryapet': ['suryapet'],
+    'miryalaguda': ['miryalaguda'],
+    'jagtial': ['jagtial']
+  };
+  
+  // Find all locations that should match this search
+  let matchingLocations = [];
+  
+  // First, check if the search term is a key in our hierarchy (broader location like country/state)
+  if (locationHierarchy[location]) {
+    matchingLocations = locationHierarchy[location];
+  } else {
+    // Check if the search term appears in any hierarchy values (specific city)
+    let found = false;
+    for (const [key, values] of Object.entries(locationHierarchy)) {
+      if (values.includes(location)) {
+        // For specific city searches, only return that city and its variants
+        matchingLocations = values.filter(loc => 
+          loc === location || 
+          loc.includes(location) || 
+          location.includes(loc)
+        );
+        found = true;
+        break;
+      }
+    }
+    
+    // If no hierarchy match found, fall back to original search term
+    if (!found) {
+      matchingLocations = [location];
+    }
+  }
+  
+  // Remove duplicates
+  matchingLocations = [...new Set(matchingLocations)];
+  
+  // Build the SQL condition for multiple location matches
+  const conditions = matchingLocations.map(() => 'LOWER(u.location) LIKE ?').join(' OR ');
+  const params = matchingLocations.map(loc => `%${loc}%`);
+  
+  return {
+    condition: `(${conditions})`,
+    params: params
+  };
+};
+
 // Search job seekers (for recruiters)
 const searchJobSeekers = (req, res) => {
   const {
     jobTitle,
     location,
-    experience,
-    availability,
-    salaryRange
+    experience
   } = req.body;
 
-  console.log('Search request:', { jobTitle, location, experience, availability, salaryRange });
+  console.log('Search request:', { jobTitle, location, experience });
 
   let query = `
     SELECT 
@@ -23,14 +238,9 @@ const searchJobSeekers = (req, res) => {
       u.createdAt,
       js.title,
       js.experience,
-      js.skills,
       js.expectedSalary,
-      js.linkedinUrl,
-      js.githubUrl,
       js.bio,
-      js.availability,
-      js.cvFilePath,
-      js.certificatesPath
+      js.cvFilePath
     FROM users u
     INNER JOIN job_seekers js ON u.id = js.userId
     WHERE u.userType = 'jobseeker'
@@ -42,16 +252,19 @@ const searchJobSeekers = (req, res) => {
   if (jobTitle && jobTitle.trim()) {
     query += ` AND (
       js.title LIKE ? OR 
-      js.bio LIKE ? OR 
-      JSON_SEARCH(js.skills, 'one', ?, NULL, '$[*]') IS NOT NULL
+      js.bio LIKE ?
     )`;
     const searchTerm = `%${jobTitle.trim()}%`;
-    params.push(searchTerm, searchTerm, `%${jobTitle.trim()}%`);
+    params.push(searchTerm, searchTerm);
   }
 
+  // Enhanced location search with hierarchy
   if (location && location.trim()) {
-    query += ` AND u.location LIKE ?`;
-    params.push(`%${location.trim()}%`);
+    const locationQuery = buildLocationQuery(location);
+    if (locationQuery.condition) {
+      query += ` AND ${locationQuery.condition}`;
+      params.push(...locationQuery.params);
+    }
   }
 
   if (experience && experience.trim()) {
@@ -59,36 +272,7 @@ const searchJobSeekers = (req, res) => {
     params.push(experience.trim());
   }
 
-  if (availability && availability.trim()) {
-    query += ` AND js.availability = ?`;
-    params.push(availability.trim());
-  }
-
-  if (salaryRange && salaryRange.trim()) {
-    // Enhanced salary filtering based on range
-    switch (salaryRange) {
-      case 'entry':
-        query += ` AND (js.expectedSalary LIKE '%20%' OR js.expectedSalary LIKE '%30%' OR js.expectedSalary LIKE '%40%')`;
-        break;
-      case 'mid':
-        query += ` AND (js.expectedSalary LIKE '%50%' OR js.expectedSalary LIKE '%60%' OR js.expectedSalary LIKE '%70%')`;
-        break;
-      case 'senior':
-        query += ` AND (js.expectedSalary LIKE '%70%' OR js.expectedSalary LIKE '%80%' OR js.expectedSalary LIKE '%90%' OR js.expectedSalary LIKE '%100%')`;
-        break;
-      case 'expert':
-        query += ` AND (js.expectedSalary LIKE '%100%' OR js.expectedSalary LIKE '%120%' OR js.expectedSalary LIKE '%150%')`;
-        break;
-    }
-  }
-
-  query += ` ORDER BY 
-    CASE 
-      WHEN js.availability = 'available' THEN 0 
-      ELSE 1 
-    END,
-    u.createdAt DESC 
-    LIMIT 50`;
+  query += ` ORDER BY u.createdAt DESC LIMIT 50`;
 
   console.log('Executing search query:', query);
   console.log('Search params:', params);
@@ -105,63 +289,22 @@ const searchJobSeekers = (req, res) => {
 
     console.log(`Found ${candidates.length} candidates`);
 
-    // Parse JSON fields and add search relevance
+    // Calculate relevance score
     const parsedCandidates = candidates.map(candidate => {
-      let parsedSkills = [];
-      let parsedCertificates = [];
-
-      // Safely parse skills
-      try {
-        if (candidate.skills) {
-          if (typeof candidate.skills === 'string') {
-            parsedSkills = JSON.parse(candidate.skills);
-          } else if (Array.isArray(candidate.skills)) {
-            parsedSkills = candidate.skills;
-          }
-        }
-      } catch (error) {
-        console.warn('Error parsing skills for candidate', candidate.id, ':', error.message);
-        parsedSkills = [];
-      }
-
-      // Safely parse certificates
-      try {
-        if (candidate.certificatesPath) {
-          if (typeof candidate.certificatesPath === 'string') {
-            parsedCertificates = JSON.parse(candidate.certificatesPath);
-          } else if (Array.isArray(candidate.certificatesPath)) {
-            parsedCertificates = candidate.certificatesPath;
-          }
-        }
-      } catch (error) {
-        console.warn('Error parsing certificates for candidate', candidate.id, ':', error.message);
-        parsedCertificates = [];
-      }
-
-      // Ensure arrays
-      if (!Array.isArray(parsedSkills)) parsedSkills = [];
-      if (!Array.isArray(parsedCertificates)) parsedCertificates = [];
-      
-      // Calculate relevance score
       let relevanceScore = 0;
       if (jobTitle && jobTitle.trim()) {
         const searchTerm = jobTitle.toLowerCase();
         if (candidate.title && candidate.title.toLowerCase().includes(searchTerm)) relevanceScore += 3;
         if (candidate.bio && candidate.bio.toLowerCase().includes(searchTerm)) relevanceScore += 2;
-        parsedSkills.forEach(skill => {
-          if (skill && skill.toLowerCase().includes(searchTerm)) relevanceScore += 2;
-        });
       }
       
       return {
         ...candidate,
-        skills: parsedSkills,
-        certificatesPath: parsedCertificates,
         relevanceScore
       };
     });
 
-    // Sort by relevance if there's a job title search, otherwise by availability and date
+    // Sort by relevance if there's a job title search, otherwise by date
     const sortedCandidates = jobTitle && jobTitle.trim() 
       ? parsedCandidates.sort((a, b) => b.relevanceScore - a.relevanceScore)
       : parsedCandidates;
@@ -173,185 +316,7 @@ const searchJobSeekers = (req, res) => {
       searchCriteria: {
         jobTitle,
         location,
-        experience,
-        availability,
-        salaryRange
-      }
-    });
-  });
-};
-
-// AI-powered skill matching (enhanced version)
-const matchSkills = (req, res) => {
-  const { skills } = req.body;
-
-  console.log('Skill matching request:', { skills });
-
-  if (!skills || !skills.trim()) {
-    return res.status(400).json({ 
-      success: false, 
-      msg: 'Skills are required for matching' 
-    });
-  }
-
-  // Parse input skills with better processing
-  const inputSkills = skills.toLowerCase()
-    .split(/[,;|\n]/)
-    .map(skill => skill.trim())
-    .filter(skill => skill.length > 0);
-
-  console.log('Parsed input skills for matching:', inputSkills);
-
-  const query = `
-    SELECT 
-      u.id,
-      u.firstName,
-      u.lastName,
-      u.email,
-      u.phone,
-      u.location,
-      u.createdAt,
-      js.title,
-      js.experience,
-      js.skills,
-      js.expectedSalary,
-      js.linkedinUrl,
-      js.githubUrl,
-      js.bio,
-      js.availability,
-      js.cvFilePath,
-      js.certificatesPath
-    FROM users u
-    INNER JOIN job_seekers js ON u.id = js.userId
-    WHERE u.userType = 'jobseeker' 
-      AND js.skills IS NOT NULL 
-      AND js.skills != '[]'
-      AND js.skills != 'null'
-      AND js.skills != ''
-    ORDER BY u.createdAt DESC
-  `;
-
-  db.query(query, [], (err, allCandidates) => {
-    if (err) {
-      console.error('Skill matching error:', err);
-      return res.status(500).json({ 
-        success: false, 
-        msg: 'Error matching skills',
-        error: err.message 
-      });
-    }
-
-    console.log(`Processing ${allCandidates.length} candidates for skill matching`);
-
-    // Enhanced skill matching algorithm
-    const matchedCandidates = allCandidates.map(candidate => {
-      let candidateSkills = [];
-      
-      // Safely parse candidate skills
-      try {
-        if (candidate.skills) {
-          if (typeof candidate.skills === 'string') {
-            candidateSkills = JSON.parse(candidate.skills);
-          } else if (Array.isArray(candidate.skills)) {
-            candidateSkills = candidate.skills;
-          }
-        }
-      } catch (error) {
-        console.warn('Invalid skills JSON for candidate:', candidate.id, error.message);
-        candidateSkills = [];
-      }
-      
-      // Ensure it's an array and filter out empty values
-      if (!Array.isArray(candidateSkills)) {
-        candidateSkills = [];
-      }
-      candidateSkills = candidateSkills.filter(skill => skill && skill.trim().length > 0);
-      
-      const candidateSkillsLower = candidateSkills.map(skill => skill.toLowerCase().trim());
-      
-      // Calculate different types of matches
-      const exactMatches = [];
-      const partialMatches = [];
-      const relatedMatches = [];
-
-      inputSkills.forEach(inputSkill => {
-        candidateSkillsLower.forEach((candidateSkill, index) => {
-          if (candidateSkill === inputSkill) {
-            exactMatches.push(candidateSkills[index]);
-          } else if (candidateSkill.includes(inputSkill) || inputSkill.includes(candidateSkill)) {
-            partialMatches.push(candidateSkills[index]);
-          } else if (areRelatedSkills(inputSkill, candidateSkill)) {
-            relatedMatches.push(candidateSkills[index]);
-          }
-        });
-      });
-
-      // Calculate match score with weighted scoring
-      const exactScore = exactMatches.length * 3;
-      const partialScore = partialMatches.length * 2;
-      const relatedScore = relatedMatches.length * 1;
-      const totalScore = exactScore + partialScore + relatedScore;
-      
-      const maxPossibleScore = inputSkills.length * 3;
-      const matchScore = maxPossibleScore > 0 
-        ? Math.round((totalScore / maxPossibleScore) * 100)
-        : 0;
-
-      const allMatchingSkills = [...new Set([...exactMatches, ...partialMatches, ...relatedMatches])];
-
-      // Parse certificates safely
-      let parsedCertificates = [];
-      try {
-        if (candidate.certificatesPath) {
-          if (typeof candidate.certificatesPath === 'string') {
-            parsedCertificates = JSON.parse(candidate.certificatesPath);
-          } else if (Array.isArray(candidate.certificatesPath)) {
-            parsedCertificates = candidate.certificatesPath;
-          }
-        }
-      } catch (error) {
-        console.warn('Error parsing certificates for candidate', candidate.id, ':', error.message);
-        parsedCertificates = [];
-      }
-
-      if (!Array.isArray(parsedCertificates)) parsedCertificates = [];
-
-      return {
-        ...candidate,
-        skills: candidateSkills,
-        certificatesPath: parsedCertificates,
-        matchScore,
-        matchingSkills: allMatchingSkills,
-        matchDetails: {
-          exact: exactMatches.length,
-          partial: partialMatches.length,
-          related: relatedMatches.length,
-          total: allMatchingSkills.length
-        }
-      };
-    }).filter(candidate => candidate.matchScore > 0)
-      .sort((a, b) => {
-        // Sort by match score first, then by availability, then by date
-        if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
-        if (a.availability === 'available' && b.availability !== 'available') return -1;
-        if (b.availability === 'available' && a.availability !== 'available') return 1;
-        return new Date(b.createdAt) - new Date(a.createdAt);
-      })
-      .slice(0, 25); // Limit to top 25 matches
-
-    console.log(`Found ${matchedCandidates.length} skill matches`);
-
-    res.json({
-      success: true,
-      matches: matchedCandidates,
-      total: matchedCandidates.length,
-      searchedSkills: inputSkills,
-      statistics: {
-        totalCandidatesProcessed: allCandidates.length,
-        candidatesWithMatches: matchedCandidates.length,
-        averageMatchScore: matchedCandidates.length > 0 
-          ? Math.round(matchedCandidates.reduce((sum, c) => sum + c.matchScore, 0) / matchedCandidates.length)
-          : 0
+        experience
       }
     });
   });
@@ -379,12 +344,11 @@ const getCandidateDetails = (req, res) => {
       u.createdAt,
       js.title,
       js.experience,
-      js.skills,
       js.expectedSalary,
-      js.linkedinUrl,
-      js.githubUrl,
+      js.salaryCurrency,
       js.bio,
       js.availability,
+      js.availableFrom,
       js.cvFilePath,
       js.certificatesPath
     FROM users u
@@ -410,23 +374,9 @@ const getCandidateDetails = (req, res) => {
 
     const candidate = candidates[0];
     
-    // Parse JSON fields safely
-    let parsedSkills = [];
+    // Parse certificates safely
     let parsedCertificates = [];
-
-    try {
-      if (candidate.skills) {
-        if (typeof candidate.skills === 'string') {
-          parsedSkills = JSON.parse(candidate.skills);
-        } else if (Array.isArray(candidate.skills)) {
-          parsedSkills = candidate.skills;
-        }
-      }
-    } catch (error) {
-      console.warn('Error parsing skills for candidate details:', error.message);
-      parsedSkills = [];
-    }
-
+    
     try {
       if (candidate.certificatesPath) {
         if (typeof candidate.certificatesPath === 'string') {
@@ -440,13 +390,11 @@ const getCandidateDetails = (req, res) => {
       parsedCertificates = [];
     }
 
-    // Ensure arrays
-    if (!Array.isArray(parsedSkills)) parsedSkills = [];
+    // Ensure it's an array
     if (!Array.isArray(parsedCertificates)) parsedCertificates = [];
 
     const parsedCandidate = {
       ...candidate,
-      skills: parsedSkills,
       certificatesPath: parsedCertificates
     };
 
@@ -457,14 +405,11 @@ const getCandidateDetails = (req, res) => {
   });
 };
 
-// NEW: Get professional categories and counts
-// In userSearchController.js - Update the getProfessionalCategories function:
-
+// Get professional categories and counts
 const getProfessionalCategories = (req, res) => {
   const query = `
     SELECT 
       js.title,
-      js.skills,
       js.bio
     FROM users u
     INNER JOIN job_seekers js ON u.id = js.userId
@@ -483,15 +428,15 @@ const getProfessionalCategories = (req, res) => {
       });
     }
 
-    // Enhanced category mappings - more comprehensive
+    // Enhanced category mappings
     const categories = {
       'Frontend Developer': {
-        keywords: ['frontend', 'front-end', 'front end', 'react', 'vue', 'angular', 'javascript', 'html', 'css', 'ui developer', 'web developer', 'jsx', 'typescript'],
+        keywords: ['frontend', 'front-end', 'front end', 'react', 'vue', 'angular', 'javascript', 'html', 'css', 'ui developer', 'web developer'],
         count: 0,
         icon: 'Code'
       },
       'Backend Developer': {
-        keywords: ['backend', 'back-end', 'back end', 'node', 'nodejs', 'python', 'java', 'php', 'api', 'server', 'database', 'django', 'flask', 'spring'],
+        keywords: ['backend', 'back-end', 'back end', 'node', 'nodejs', 'python', 'java', 'php', 'api', 'server', 'database'],
         count: 0,
         icon: 'Database'
       },
@@ -501,52 +446,52 @@ const getProfessionalCategories = (req, res) => {
         icon: 'Layers'
       },
       'Data Engineer': {
-        keywords: ['data engineer', 'data engineering', 'etl', 'data pipeline', 'big data', 'hadoop', 'spark', 'airflow', 'kafka'],
+        keywords: ['data engineer', 'data engineering', 'etl', 'data pipeline', 'big data'],
         count: 0,
         icon: 'Database'
       },
       'Data Analyst': {
-        keywords: ['data analyst', 'data analysis', 'analyst', 'business analyst', 'reporting', 'dashboard', 'excel', 'tableau', 'power bi'],
+        keywords: ['data analyst', 'data analysis', 'analyst', 'business analyst', 'reporting'],
         count: 0,
         icon: 'BarChart'
       },
       'Data Scientist': {
-        keywords: ['data scientist', 'data science', 'machine learning', 'ml', 'ai', 'artificial intelligence', 'analytics', 'statistics'],
+        keywords: ['data scientist', 'data science', 'machine learning', 'ml', 'ai', 'artificial intelligence'],
         count: 0,
         icon: 'TrendingUp'
       },
       'DevOps Engineer': {
-        keywords: ['devops', 'dev ops', 'docker', 'kubernetes', 'aws', 'azure', 'gcp', 'jenkins', 'ci/cd', 'terraform', 'ansible'],
+        keywords: ['devops', 'dev ops', 'docker', 'kubernetes', 'aws', 'azure', 'jenkins', 'ci/cd'],
         count: 0,
         icon: 'Settings'
       },
       'Cloud Engineer': {
-        keywords: ['cloud', 'aws', 'azure', 'gcp', 'google cloud', 'cloud architect', 'cloud developer', 'ec2', 's3', 'lambda'],
+        keywords: ['cloud', 'aws', 'azure', 'gcp', 'google cloud', 'cloud architect'],
         count: 0,
         icon: 'Settings'
       },
       'Mobile Developer': {
-        keywords: ['mobile', 'ios', 'android', 'react native', 'flutter', 'swift', 'kotlin', 'app developer'],
+        keywords: ['mobile', 'ios', 'android', 'react native', 'flutter', 'app developer'],
         count: 0,
         icon: 'Smartphone'
       },
       'QA Engineer': {
-        keywords: ['qa', 'quality assurance', 'testing', 'test', 'automation', 'selenium', 'tester', 'manual testing', 'test engineer'],
+        keywords: ['qa', 'quality assurance', 'testing', 'test', 'automation', 'tester'],
         count: 0,
         icon: 'CheckCircle'
       },
       'UI/UX Designer': {
-        keywords: ['ui', 'ux', 'designer', 'design', 'figma', 'sketch', 'adobe', 'user experience', 'user interface', 'graphic'],
+        keywords: ['ui', 'ux', 'designer', 'design', 'figma', 'user experience', 'user interface'],
         count: 0,
         icon: 'Palette'
       },
       'Product Manager': {
-        keywords: ['product manager', 'product management', 'pm', 'product owner', 'scrum master', 'agile', 'product lead'],
+        keywords: ['product manager', 'product management', 'pm', 'product owner', 'scrum master'],
         count: 0,
         icon: 'Users'
       },
       'Software Engineer': {
-        keywords: ['software engineer', 'software developer', 'programmer', 'coding', 'development', 'engineer'],
+        keywords: ['software engineer', 'software developer', 'programmer', 'coding', 'engineer'],
         count: 0,
         icon: 'Code'
       },
@@ -557,31 +502,14 @@ const getProfessionalCategories = (req, res) => {
       }
     };
 
-    // Categorize ALL professionals
+    // Categorize professionals
     professionals.forEach(professional => {
       const title = (professional.title || '').toLowerCase();
       const bio = (professional.bio || '').toLowerCase();
-      let skills = [];
-      
-      // Parse skills safely
-      try {
-        if (professional.skills) {
-          if (typeof professional.skills === 'string') {
-            skills = JSON.parse(professional.skills);
-          } else if (Array.isArray(professional.skills)) {
-            skills = professional.skills;
-          }
-        }
-      } catch (error) {
-        skills = [];
-      }
-      
-      const skillsText = Array.isArray(skills) ? skills.join(' ').toLowerCase() : '';
-      const combinedText = `${title} ${bio} ${skillsText}`;
+      const combinedText = `${title} ${bio}`;
       
       let categorized = false;
       
-      // Check each category (excluding "Others")
       Object.keys(categories).forEach(categoryName => {
         if (categoryName !== 'Others' && !categorized) {
           const category = categories[categoryName];
@@ -596,22 +524,20 @@ const getProfessionalCategories = (req, res) => {
         }
       });
       
-      // If not categorized in any specific category, add to "Others"
       if (!categorized) {
         categories['Others'].count++;
       }
     });
 
-    // Convert to array, filter out empty categories, and sort by count
+    // Convert to array and filter
     const categoryArray = Object.keys(categories)
       .map(name => ({
         name,
         count: categories[name].count,
         icon: categories[name].icon
       }))
-      .filter(category => category.count > 0)  // Only show categories with candidates
+      .filter(category => category.count > 0)
       .sort((a, b) => {
-        // Sort "Others" to the end, then by count
         if (a.name === 'Others') return 1;
         if (b.name === 'Others') return -1;
         return b.count - a.count;
@@ -624,13 +550,12 @@ const getProfessionalCategories = (req, res) => {
     });
   });
 };
-// Get search statistics (enhanced with categories)
+
+// Get search statistics
 const getSearchStats = (req, res) => {
   const statsQuery = `
     SELECT 
       COUNT(DISTINCT u.id) as totalCandidates,
-      COUNT(DISTINCT CASE WHEN js.availability = 'available' THEN u.id END) as availableCandidates,
-      COUNT(DISTINCT CASE WHEN js.skills IS NOT NULL AND js.skills != '[]' AND js.skills != '' THEN u.id END) as candidatesWithSkills,
       COUNT(DISTINCT CASE WHEN js.cvFilePath IS NOT NULL THEN u.id END) as candidatesWithCV
     FROM users u
     INNER JOIN job_seekers js ON u.id = js.userId
@@ -646,89 +571,16 @@ const getSearchStats = (req, res) => {
       });
     }
 
-    const topSkillsQuery = `
-      SELECT skill, COUNT(*) as count
-      FROM (
-        SELECT JSON_UNQUOTE(JSON_EXTRACT(js.skills, CONCAT('$[', numbers.n, ']'))) as skill
-        FROM job_seekers js
-        JOIN (SELECT 0 as n UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) numbers
-        WHERE JSON_LENGTH(js.skills) > numbers.n
-        AND js.skills IS NOT NULL
-        AND js.skills != '[]'
-        AND js.skills != ''
-      ) as extracted_skills
-      WHERE skill IS NOT NULL AND skill != ''
-      GROUP BY skill
-      ORDER BY count DESC
-      LIMIT 10
-    `;
-
-    db.query(topSkillsQuery, [], (err, topSkills) => {
-      if (err) {
-        console.warn('Top skills query error:', err);
-        // If top skills query fails, still return basic stats
-        return res.json({
-          success: true,
-          statistics: stats[0],
-          topSkills: []
-        });
-      }
-
-      res.json({
-        success: true,
-        statistics: stats[0],
-        topSkills: topSkills || []
-      });
+    res.json({
+      success: true,
+      statistics: stats[0]
     });
   });
 };
 
-// Helper function to determine if skills are related
-function areRelatedSkills(skill1, skill2) {
-  const relatedSkillsMap = {
-    'react': ['javascript', 'js', 'jsx', 'frontend', 'web development', 'next', 'nextjs'],
-    'vue': ['javascript', 'js', 'frontend', 'web development', 'nuxt'],
-    'angular': ['typescript', 'javascript', 'js', 'frontend', 'web development'],
-    'node': ['javascript', 'js', 'backend', 'server', 'express'],
-    'nodejs': ['javascript', 'js', 'backend', 'server', 'express'],
-    'python': ['django', 'flask', 'fastapi', 'backend', 'data science', 'machine learning', 'ai'],
-    'java': ['spring', 'backend', 'enterprise', 'springboot'],
-    'typescript': ['javascript', 'js', 'react', 'angular', 'node'],
-    'css': ['html', 'frontend', 'web development', 'sass', 'scss', 'tailwind'],
-    'html': ['css', 'frontend', 'web development'],
-    'sql': ['database', 'mysql', 'postgresql', 'mongodb'],
-    'aws': ['cloud', 'devops', 'infrastructure', 'ec2', 's3'],
-    'docker': ['devops', 'containerization', 'kubernetes'],
-    'git': ['version control', 'github', 'gitlab'],
-    'mongodb': ['database', 'nosql', 'mongoose'],
-    'mysql': ['database', 'sql', 'relational'],
-    'postgresql': ['database', 'sql', 'relational'],
-    'redis': ['cache', 'database', 'memory'],
-    'graphql': ['api', 'query language', 'apollo'],
-    'rest': ['api', 'web service', 'http'],
-    'sass': ['css', 'scss', 'styling'],
-    'scss': ['css', 'sass', 'styling'],
-    'tailwind': ['css', 'utility', 'styling'],
-    'bootstrap': ['css', 'framework', 'responsive']
-  };
-
-  const skill1Lower = skill1.toLowerCase();
-  const skill2Lower = skill2.toLowerCase();
-
-  if (relatedSkillsMap[skill1Lower] && relatedSkillsMap[skill1Lower].includes(skill2Lower)) {
-    return true;
-  }
-  if (relatedSkillsMap[skill2Lower] && relatedSkillsMap[skill2Lower].includes(skill1Lower)) {
-    return true;
-  }
-  
-  return false;
-}
-
 module.exports = {
   searchJobSeekers,
-  matchSkills,
   getCandidateDetails,
   getSearchStats,
-  getProfessionalCategories  // NEW export
+  getProfessionalCategories
 };

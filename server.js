@@ -10,16 +10,26 @@ const { verifyEmailConfig } = require("./services/emailService");
 
 // Existing Routes
 const loginRoutes = require("./routes/loginRoutes");
+
+// Search and contact routes
 const userSearchRoutes = require("./routes/userSearchRoutes");
 const contactRoutes = require("./routes/contactRoutes");
 
-// New Routes
+// Register and dashboard routes
 const registerRoutes = require("./routes/registerRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
+
+// Review routes
+const reviewRoutes = require('./routes/reviewRoutes');
+
+// Equipment routes
+const equipmentRoutes = require("./routes/equipmentRoutes");
+const equipmentSearchRoutes = require("./routes/equipmentSearchRoutes");
 
 // Controllers for table creation
 const { createContactLogsTable } = require("./controllers/contactController");
 const { createTables } = require("./controllers/registerController");
+const { createEquipmentTable } = require("./controllers/equipmentController");
 
 const app = express();
 const PORT = process.env.PORT || 5550;
@@ -51,6 +61,13 @@ app.use("/api/contact", contactRoutes);
 app.use("/api", registerRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
+// Review routes
+app.use('/api/reviews', reviewRoutes);
+
+// Equipment routes
+app.use("/api/equipment", equipmentRoutes);
+app.use("/api/equipment", equipmentSearchRoutes);
+  
 // 404 handler
 app.use("*", (req, res) => {
   res.status(404).json({
@@ -78,6 +95,7 @@ const startServer = async () => {
     // Create tables
     createContactLogsTable();
     await createTables();
+    await createEquipmentTable();
     console.log("✅ Database tables initialized");
 
     await verifyEmailConfig();

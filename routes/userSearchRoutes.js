@@ -4,19 +4,15 @@ const router = express.Router();
 // Import controller functions from userSearchController
 const {
   searchJobSeekers,
-  matchSkills,
   getCandidateDetails,
   getSearchStats,
   getProfessionalCategories
 } = require('../controllers/userSearchController');
 
-// Search job seekers
+// Search job seekers - General search endpoint
 router.post('/jobseekers', searchJobSeekers);
 
-// AI skill matching
-router.post('/match-skills', matchSkills);
-
-// Get candidate details
+// Get candidate details by ID
 router.get('/candidate/:candidateId', getCandidateDetails);
 
 // Get search statistics

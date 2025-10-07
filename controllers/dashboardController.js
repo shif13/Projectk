@@ -15,68 +15,14 @@ const safeJsonParse = (jsonString, fallback = []) => {
   }
 };
 
-// Helper function to validate and process skills
-const processSkills = (skills) => {
-  console.log('Processing skills - input:', { type: typeof skills, value: skills });
-  
-  let skillsArray = [];
-  
-  if (!skills) {
-    return skillsArray;
-  }
-  
-  // If it's already an array, use it
-  if (Array.isArray(skills)) {
-    skillsArray = skills;
-  }
-  // If it's a string, try to parse as JSON first, then fallback to comma-split
-  else if (typeof skills === 'string') {
-    const trimmed = skills.trim();
-    
-    if (trimmed === '' || trimmed === '[]') {
-      return skillsArray;
-    }
-    
-    // Try JSON parse first
-    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-          skillsArray = parsed;
-        }
-      } catch (jsonError) {
-        console.warn('Failed to parse skills JSON:', jsonError.message);
-        // Fallback to comma-split
-        skillsArray = trimmed.split(',').map(s => s.trim()).filter(s => s.length > 0);
-      }
-    } else {
-      // Split by comma
-      skillsArray = trimmed.split(',').map(s => s.trim()).filter(s => s.length > 0);
-    }
-  }
-  
-  // Clean and validate the array
-  skillsArray = skillsArray
-    .map(skill => String(skill).trim())
-    .filter(skill => skill.length > 0 && skill.length <= 50)
-    .slice(0, 20); // Limit to 20 skills
-  
-  console.log('Processed skills result:', skillsArray);
-  return skillsArray;
-};
-
 // Enhanced validation function for updates
-const validateRequiredFields = ({ firstName, lastName, userName, email, userType, companyName }) => {
+const validateRequiredFields = ({ firstName, lastName, userName, email }) => {
   const errors = [];
 
   if (!firstName || firstName.trim().length < 1) errors.push('First name is required');
   if (!lastName || lastName.trim().length < 1) errors.push('Last name is required');
   if (!userName || userName.trim().length < 3) errors.push('Username must be at least 3 characters');
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push('Valid email is required');
-  
-  if (userType === 'recruiter' && (!companyName || companyName.trim().length < 2)) {
-    errors.push('Company name is required for recruiters');
-  }
 
   // Additional validation
   if (userName && !/^[a-zA-Z0-9_]{3,30}$/.test(userName.trim())) {
@@ -87,17 +33,6 @@ const validateRequiredFields = ({ firstName, lastName, userName, email, userType
     isValid: errors.length === 0,
     message: errors.length > 0 ? errors.join(', ') : null
   };
-};
-
-// URL validation helper
-const validateUrl = (url) => {
-  if (!url || url.trim() === '') return null;
-  try {
-    const urlObj = new URL(url.trim());
-    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:' ? url.trim() : null;
-  } catch {
-    return null;
-  }
 };
 
 // Promisified rollback function
@@ -147,72 +82,40 @@ const getUserProfile = (req, res) => {
 
       const user = users[0];
 
-      if (user.userType === 'jobseeker') {
-        const profileQuery = 'SELECT * FROM job_seekers WHERE userId = ?';
-        
-        db.query(profileQuery, [userId], (err, jobSeekers) => {
-          if (err) {
-            console.error('Job seeker profile error:', err);
-            return res.status(500).json({ 
-              success: false, 
-              msg: 'Error fetching user profile' 
-            });
-          }
-
-          let profile = null;
-          if (jobSeekers.length > 0) {
-            try {
-              profile = {
-                ...jobSeekers[0],
-                skills: safeJsonParse(jobSeekers[0].skills, []),
-                certificatesPath: safeJsonParse(jobSeekers[0].certificatesPath, [])
-              };
-            } catch (parseError) {
-              console.warn('Error parsing JSON fields:', parseError);
-              profile = {
-                ...jobSeekers[0],
-                skills: [],
-                certificatesPath: []
-              };
-            }
-          }
-
-          res.json({
-            success: true,
-            user,
-            profile
+      // Only job seeker profiles in new system
+      const profileQuery = 'SELECT * FROM job_seekers WHERE userId = ?';
+      
+      db.query(profileQuery, [userId], (err, jobSeekers) => {
+        if (err) {
+          console.error('Job seeker profile error:', err);
+          return res.status(500).json({ 
+            success: false, 
+            msg: 'Error fetching user profile' 
           });
-        });
+        }
 
-      } else if (user.userType === 'recruiter') {
-        const profileQuery = 'SELECT * FROM recruiters WHERE userId = ?';
-        
-        db.query(profileQuery, [userId], (err, recruiters) => {
-          if (err) {
-            console.error('Recruiter profile error:', err);
-            return res.status(500).json({ 
-              success: false, 
-              msg: 'Error fetching user profile' 
-            });
+        let profile = null;
+        if (jobSeekers.length > 0) {
+          try {
+            profile = {
+              ...jobSeekers[0],
+              certificatesPath: safeJsonParse(jobSeekers[0].certificatesPath, [])
+            };
+          } catch (parseError) {
+            console.warn('Error parsing JSON fields:', parseError);
+            profile = {
+              ...jobSeekers[0],
+              certificatesPath: []
+            };
           }
+        }
 
-          let profile = null;
-          if (recruiters.length > 0) {
-            profile = recruiters[0];
-          }
-
-          res.json({
-            success: true,
-            user,
-            profile
-          });
+        res.json({
+          success: true,
+          user,
+          profile
         });
-      } else {
-        res.status(400).json({
-          success: false,
-          msg: 'Invalid user type'
-        });
-      }
+      });
     });
   } catch (error) {
     console.error('Get profile error:', error);
@@ -256,26 +159,16 @@ const updateUserProfile = async (req, res) => {
       // Job seeker fields
       title, 
       experience, 
-      skills, 
-      expectedSalary, 
-      linkedinUrl, 
-      githubUrl, 
+      expectedSalary,
+      salaryCurrency,
       bio, 
       availability,
-      // Recruiter fields
-      companyName,
-      companySize,
-      industry,
-      companyWebsite,
-      companyDescription,
-      position
+      availableFrom
     } = req.body;
 
     // Enhanced validation
     const validation = validateRequiredFields({
-      firstName, lastName, userName, email, 
-      userType: 'jobseeker', // We'll get actual type from DB
-      companyName: null // Will validate later if needed
+      firstName, lastName, userName, email
     });
 
     if (!validation.isValid) {
@@ -349,40 +242,11 @@ const updateUserProfile = async (req, res) => {
 
       console.log('User table updated successfully');
 
-      // Get user type to update appropriate profile
-      const getUserTypeQuery = 'SELECT userType FROM users WHERE id = ?';
-      
-      const userTypeResult = await new Promise((resolve, reject) => {
-        db.query(getUserTypeQuery, [userId], (err, users) => {
-          if (err) return reject(err);
-          resolve(users);
-        });
+      // Update job seeker profile with files
+      await updateJobSeekerProfileWithFiles(req, userId, {
+        title, experience, expectedSalary, salaryCurrency,
+        bio, availability, availableFrom
       });
-
-      if (userTypeResult.length === 0) {
-        await rollbackTransaction();
-        cleanupUploadedFiles(req);
-        return res.status(404).json({ 
-          success: false, 
-          msg: 'User not found' 
-        });
-      }
-
-      const userType = userTypeResult[0].userType;
-      console.log('User type:', userType);
-
-      // Update profile based on user type
-      if (userType === 'jobseeker') {
-        await updateJobSeekerProfileWithFiles(req, userId, {
-          title, experience, skills, expectedSalary, 
-          linkedinUrl, githubUrl, bio, availability
-        });
-      } else if (userType === 'recruiter') {
-        await updateRecruiterProfileWithFiles(req, userId, {
-          companyName, companySize, industry, 
-          companyWebsite, companyDescription, position
-        });
-      }
 
       // Commit transaction
       await new Promise((resolve, reject) => {
@@ -436,7 +300,7 @@ const updateUserProfile = async (req, res) => {
 
 // Enhanced job seeker profile update with file handling
 const updateJobSeekerProfileWithFiles = async (req, userId, profileData) => {
-  const { title, experience, skills, expectedSalary, linkedinUrl, githubUrl, bio, availability } = profileData;
+  const { title, experience, expectedSalary, salaryCurrency, bio, availability, availableFrom } = profileData;
 
   // Handle file uploads
   let newCvFilePath = null;
@@ -453,29 +317,21 @@ const updateJobSeekerProfileWithFiles = async (req, userId, profileData) => {
     }
   }
 
-  // Process skills
-  const parsedSkills = processSkills(skills);
-
-  // Validate URLs
-  const validLinkedinUrl = validateUrl(linkedinUrl);
-  const validGithubUrl = validateUrl(githubUrl);
-
   // Build update query dynamically based on whether new files were uploaded
   let updateQuery = `
     UPDATE job_seekers 
-    SET title = ?, experience = ?, skills = ?, expectedSalary = ?, 
-        linkedinUrl = ?, githubUrl = ?, bio = ?, availability = ?
+    SET title = ?, experience = ?, expectedSalary = ?, salaryCurrency = ?,
+        bio = ?, availability = ?, availableFrom = ?
   `;
   
   let values = [
     title ? title.trim() : null, 
     experience ? experience.trim() : null, 
-    JSON.stringify(parsedSkills), 
-    expectedSalary ? expectedSalary.trim() : null, 
-    validLinkedinUrl, 
-    validGithubUrl, 
+    expectedSalary ? expectedSalary.trim() : null,
+    salaryCurrency || 'USD',
     bio ? bio.trim() : null, 
-    availability || 'available'
+    availability || 'available',
+    availableFrom || null
   ];
 
   // Add file fields if new files were uploaded
@@ -504,136 +360,7 @@ const updateJobSeekerProfileWithFiles = async (req, userId, profileData) => {
   });
 };
 
-// Enhanced recruiter profile update
-const updateRecruiterProfileWithFiles = async (req, userId, profileData) => {
-  const { companyName, companySize, industry, companyWebsite, companyDescription, position } = profileData;
-
-  // Validate required fields for recruiters
-  if (!companyName || companyName.trim().length < 2) {
-    throw new Error('Company name is required for recruiters');
-  }
-
-  // Validate company website URL
-  const validWebsite = validateUrl(companyWebsite);
-
-  const updateRecruiterQuery = `
-    UPDATE recruiters 
-    SET companyName = ?, companySize = ?, industry = ?, 
-        companyWebsite = ?, companyDescription = ?, position = ? 
-    WHERE userId = ?
-  `;
-  
-  const values = [
-    companyName.trim(),
-    companySize ? companySize.trim() : null,
-    industry ? industry.trim() : null,
-    validWebsite,
-    companyDescription ? companyDescription.trim() : null,
-    position ? position.trim() : null,
-    userId
-  ];
-  
-  return new Promise((resolve, reject) => {
-    db.query(updateRecruiterQuery, values, (err, result) => {
-      if (err) {
-        console.error('Recruiter profile update error:', err);
-        return reject(err);
-      }
-      console.log('Recruiter profile updated successfully');
-      resolve(result);
-    });
-  });
-};
-
-// Update job seeker profile (basic version without files)
-const updateJobSeekerProfile = (req, res, userId, profileData) => {
-  const { title, experience, skills, expectedSalary, linkedinUrl, githubUrl, bio, availability } = profileData;
-
-  // Process skills using the helper function
-  const parsedSkills = processSkills(skills);
-
-  // Validate URLs
-  const validLinkedinUrl = validateUrl(linkedinUrl);
-  const validGithubUrl = validateUrl(githubUrl);
-
-  const updateProfileQuery = `
-    UPDATE job_seekers 
-    SET title = ?, experience = ?, skills = ?, expectedSalary = ?, 
-        linkedinUrl = ?, githubUrl = ?, bio = ?, availability = ?
-    WHERE userId = ?
-  `;
-  
-  const values = [
-    title ? title.trim() : null, 
-    experience ? experience.trim() : null, 
-    JSON.stringify(parsedSkills), 
-    expectedSalary ? expectedSalary.trim() : null, 
-    validLinkedinUrl, 
-    validGithubUrl, 
-    bio ? bio.trim() : null, 
-    availability || 'available', 
-    userId
-  ];
-  
-  db.query(updateProfileQuery, values, (err) => {
-    if (err) {
-      console.error('Job seeker profile update error:', err);
-      return res.status(500).json({ 
-        success: false, 
-        msg: 'Server error during profile update' 
-      });
-    }
-
-    res.json({ 
-      success: true, 
-      msg: 'Profile updated successfully' 
-    });
-  });
-};
-
-// Update recruiter profile (basic version)
-const updateRecruiterProfile = (req, res, userId, profileData) => {
-  const { companyName, companySize, industry, companyWebsite, companyDescription, position } = profileData;
-
-  // Validate company website URL
-  const validWebsite = validateUrl(companyWebsite);
-
-  const updateRecruiterQuery = `
-    UPDATE recruiters 
-    SET companyName = ?, companySize = ?, industry = ?, 
-        companyWebsite = ?, companyDescription = ?, position = ? 
-    WHERE userId = ?
-  `;
-  
-  const values = [
-    companyName ? companyName.trim() : null,
-    companySize ? companySize.trim() : null,
-    industry ? industry.trim() : null,
-    validWebsite,
-    companyDescription ? companyDescription.trim() : null,
-    position ? position.trim() : null,
-    userId
-  ];
-  
-  db.query(updateRecruiterQuery, values, (err) => {
-    if (err) {
-      console.error('Recruiter profile update error:', err);
-      return res.status(500).json({ 
-        success: false, 
-        msg: 'Server error during profile update' 
-      });
-    }
-
-    res.json({ 
-      success: true, 
-      msg: 'Profile updated successfully' 
-    });
-  });
-};
-
 module.exports = {
   getUserProfile,
-  updateUserProfile,
-  updateJobSeekerProfile,
-  updateRecruiterProfile
+  updateUserProfile
 };
