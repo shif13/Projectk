@@ -109,11 +109,12 @@ const startServer = async () => {
     console.log("✅ Database tables initialized");
 
     await verifyEmailConfig();
-    console.log("✅ Email service initialized");
+console.log("✅ Email service initialized");
 
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running at http://localhost:${PORT}`);
-    });
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
+
   } catch (error) {
     console.error("❌ Failed to start server:", error.message);
     process.exit(1);
