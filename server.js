@@ -26,7 +26,7 @@ const reviewRoutes = require('./routes/reviewRoutes');
 const equipmentRoutes = require("./routes/equipmentRoutes");
 const equipmentSearchRoutes = require("./routes/equipmentSearchRoutes");
 
-// ===== ADD THIS: Featured routes =====
+// Featured routes
 const featuredRoutes = require("./routes/featuredRoutes");
 
 // Controllers for table creation
@@ -42,12 +42,13 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// ===== STATIC FILES EXPLANATION =====
-// This line serves your uploaded files (images, PDFs, etc.)
-// When equipment is created, files are saved to: uploads/equipment/filename.jpg
-// This makes them accessible at: http://localhost:5550/uploads/equipment/filename.jpg
-// Without this line, the frontend cannot access uploaded images!
+// ===== STATIC FILES - MUST BE BEFORE API ROUTES =====
+// This serves uploaded files (images, PDFs, etc.)
+// Files saved to: uploads/equipment/filename.jpg
+// Accessible at: http://your-domain.com/uploads/equipment/filename.jpg
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+console.log('📁 Static files directory:', path.join(__dirname, 'uploads'));
 
 // Health check
 app.get("/api/health", (req, res) => {
@@ -59,23 +60,14 @@ app.get("/api/health", (req, res) => {
 });
 
 // API Routes
-// Existing routes
 app.use("/api/login", loginRoutes);
 app.use("/api/search", userSearchRoutes);
 app.use("/api/contact", contactRoutes);
-
-// New routes
 app.use("/api", registerRoutes);
 app.use("/api/dashboard", dashboardRoutes);
-
-// Review routes
 app.use('/api/reviews', reviewRoutes);
-
-// Equipment routes
 app.use("/api/equipment", equipmentRoutes);
 app.use("/api/equipment", equipmentSearchRoutes);
-
-// ===== ADD THIS: Featured routes =====
 app.use("/api", featuredRoutes);
   
 // 404 handler
@@ -109,11 +101,11 @@ const startServer = async () => {
     console.log("✅ Database tables initialized");
 
     await verifyEmailConfig();
-console.log("✅ Email service initialized");
+    console.log("✅ Email service initialized");
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+    });
 
   } catch (error) {
     console.error("❌ Failed to start server:", error.message);

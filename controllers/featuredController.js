@@ -1,7 +1,10 @@
 // featureController.js - Handles featured freelancers and equipment
 const { db } = require('../config/db');
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5550';
+// Get backend URL from environment variable
+const BACKEND_URL = process.env.BACKEND_URL;
+
+// ==================== FREELANCER FUNCTIONS ====================
 
 // Get featured freelancers
 const getFeaturedFreelancers = (req, res) => {
@@ -257,7 +260,8 @@ const getFeaturedEquipment = (req, res) => {
             );
             if (imageFile && imageFile.path) {
               const cleanPath = imageFile.path.replace(/\\/g, '/').replace(/^uploads\//, '');
-              image = `${FRONTEND_URL}/uploads/${cleanPath}`;
+              image = `${BACKEND_URL}/uploads/${cleanPath}`;
+              
               console.log('Original path:', imageFile.path);
               console.log('Cleaned path:', cleanPath);
               console.log('Final URL:', image);
