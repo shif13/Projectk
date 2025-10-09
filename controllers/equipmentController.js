@@ -6,7 +6,7 @@ const { db } = require('../config/db');
 const { cleanupUploadedFiles } = require('../middleware/registerMiddleware');
 const { sendEquipmentListingEmail } = require('../services/emailService');
 
-// Configure multer for file uploads (equipment condition photos/docs)
+// Configure multer for file uploads (equipment images)
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const uploadPath = 'uploads/equipment/';
@@ -24,11 +24,11 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  if (file.fieldname === 'equipmentConditionFiles') {
-    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
+  if (file.fieldname === 'equipmentImages') {
+    if (file.mimetype.startsWith('image/')) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files and PDFs are allowed'), false);
+      cb(new Error('Only image files are allowed'), false);
     }
   } else {
     cb(new Error('Unexpected field'), false);
@@ -43,7 +43,7 @@ const upload = multer({
     files: 10
   }
 }).fields([
-  { name: 'equipmentConditionFiles', maxCount: 5 }
+  { name: 'equipmentImages', maxCount: 5 }
 ]);
 
 // Create equipment table
@@ -59,7 +59,7 @@ const createEquipmentTable = () => {
         contactNumber VARCHAR(20) NOT NULL,
         contactEmail VARCHAR(255) NOT NULL,
         availability ENUM('available', 'on-hire') DEFAULT 'available',
-        equipmentConditionFiles JSON,
+        equipmentImages JSON,
         isActive BOOLEAN DEFAULT TRUE,
         createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -164,7 +164,7 @@ const insertEquipment = (equipmentData) => {
     const query = `
       INSERT INTO equipment (
         equipmentName, equipmentType, location, contactPerson, 
-        contactNumber, contactEmail, availability, equipmentConditionFiles
+        contactNumber, contactEmail, availability, equipmentImages
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `;
     
@@ -176,7 +176,7 @@ const insertEquipment = (equipmentData) => {
       equipmentData.contactNumber,
       equipmentData.contactEmail,
       equipmentData.availability || 'available',
-      JSON.stringify(equipmentData.equipmentConditionFiles || [])
+      JSON.stringify(equipmentData.equipmentImages || [])
     ];
 
     db.query(query, values, (err, result) => {
@@ -258,8 +258,8 @@ const createEquipment = async (req, res) => {
         });
 
         try {
-          // Process file uploads (equipment condition photos/docs)
-          const equipmentConditionFiles = req.files?.equipmentConditionFiles?.map(file => ({
+          // Process file uploads (equipment images)
+          const equipmentImages = req.files?.equipmentImages?.map(file => ({
             filename: file.filename,
             originalName: file.originalname,
             path: file.path,
@@ -275,7 +275,7 @@ const createEquipment = async (req, res) => {
             contactNumber: contactNumber.trim(),
             contactEmail: contactEmail.trim().toLowerCase(),
             availability: availability || 'available',
-            equipmentConditionFiles
+            equipmentImages
           };
 
           console.log('Inserting equipment data:', equipmentData);
@@ -299,13 +299,13 @@ const createEquipment = async (req, res) => {
           sendEquipmentListingEmail(equipmentData)
             .then(emailResult => {
               if (emailResult.success) {
-                console.log('✅ Equipment listing confirmation email sent');
+                console.log('Equipment listing confirmation email sent');
               } else {
-                console.log('⚠️ Failed to send listing confirmation email:', emailResult.error);
+                console.log('Failed to send listing confirmation email:', emailResult.error);
               }
             })
             .catch(emailError => {
-              console.error('❌ Email sending error:', emailError);
+              console.error('Email sending error:', emailError);
             });
 
           const responseTime = Date.now() - startTime;

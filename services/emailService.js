@@ -119,7 +119,7 @@ const getJobSeekerWelcomeTemplate = (userData) => {
           </div>
           
           <div class="footer">
-            <p>© 2024 TalentConnect. All rights reserved.</p>
+            <p>© 2025 TalentConnect. All rights reserved.</p>
             <p>This email was sent to ${userData.email}</p>
           </div>
         </div>
@@ -927,7 +927,7 @@ const getContactEmailTemplate = (candidate, subject, message, senderInfo) => {
           
           <div class="footer">
             <p><strong>TalentConnect</strong> - Connecting Talent with Opportunity</p>
-            <p>© 2024 TalentConnect. All rights reserved.</p>
+            <p>© 2025 TalentConnect. All rights reserved.</p>
             <p style="margin-top: 16px;">
               This email was sent to <strong>${candidate.email}</strong><br>
               <a href="#" style="color: #666;">Unsubscribe</a> | 
@@ -966,7 +966,7 @@ const getContactEmailTemplate = (candidate, subject, message, senderInfo) => {
       
       ---
       This email was sent to ${candidate.email}
-      © 2024 TalentConnect. All rights reserved.
+      © 2025 TalentConnect. All rights reserved.
     `
   };
 };
@@ -1574,7 +1574,7 @@ const getEquipmentInquiryTemplate = (equipmentData, inquiryData) => {
           
           <div class="footer">
             <p><strong>Equipment Hire Platform</strong> - Connecting Equipment Owners with Renters</p>
-            <p>© 2024 Equipment Hire Platform. All rights reserved.</p>
+            <p>© 2025 Equipment Hire Platform. All rights reserved.</p>
             <p style="margin-top: 12px;">
               This inquiry was sent to your listed email address.<br>
               If you no longer wish to receive rental inquiries, please update your equipment listing.
@@ -1621,7 +1621,7 @@ const getEquipmentInquiryTemplate = (equipmentData, inquiryData) => {
       Equipment Hire Platform Team
       
       ---
-      © 2024 Equipment Hire Platform. All rights reserved.
+      © 2025 Equipment Hire Platform. All rights reserved.
     `
   };
 };
@@ -1634,6 +1634,6 @@ module.exports = {
   sendPasswordChangeConfirmation,
   transporter,
   sendContactEmail,
-  sendEquipmentListingEmail,
-  sendEquipmentInquiryEmail
+  sendEquipmentInquiryEmail,
+  sendEquipmentListingEmail
 };

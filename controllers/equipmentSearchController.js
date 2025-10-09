@@ -335,7 +335,7 @@ const searchEquipment = async (req, res) => {
         contactNumber,
         contactEmail,
         availability,
-        equipmentConditionFiles,
+        equipmentImages,
         createdAt,
         updatedAt
       FROM equipment
@@ -384,20 +384,20 @@ const searchEquipment = async (req, res) => {
       }
 
       const equipmentList = results.map(item => {
-        let conditionFiles = [];
+        let images = [];
         try {
-          if (item.equipmentConditionFiles) {
-            conditionFiles = typeof item.equipmentConditionFiles === 'string' 
-              ? JSON.parse(item.equipmentConditionFiles)
-              : item.equipmentConditionFiles;
+          if (item.equipmentImages) {
+            images = typeof item.equipmentImages === 'string' 
+              ? JSON.parse(item.equipmentImages)
+              : item.equipmentImages;
           }
         } catch (parseError) {
-          console.error('Error parsing condition files for equipment:', item.id, parseError);
+          console.error('Error parsing images for equipment:', item.id, parseError);
         }
 
         return {
           ...item,
-          equipmentConditionFiles: conditionFiles
+          equipmentImages: images
         };
       });
 
@@ -453,7 +453,7 @@ const getEquipmentById = async (req, res) => {
         contactNumber,
         contactEmail,
         availability,
-        equipmentConditionFiles,
+        equipmentImages,
         createdAt,
         updatedAt
       FROM equipment
@@ -481,15 +481,15 @@ const getEquipmentById = async (req, res) => {
 
       const equipment = results[0];
 
-      let conditionFiles = [];
+      let images = [];
       try {
-        if (equipment.equipmentConditionFiles) {
-          conditionFiles = typeof equipment.equipmentConditionFiles === 'string'
-            ? JSON.parse(equipment.equipmentConditionFiles)
-            : equipment.equipmentConditionFiles;
+        if (equipment.equipmentImages) {
+          images = typeof equipment.equipmentImages === 'string'
+            ? JSON.parse(equipment.equipmentImages)
+            : equipment.equipmentImages;
         }
       } catch (parseError) {
-        console.error('Error parsing condition files:', parseError);
+        console.error('Error parsing images:', parseError);
       }
 
       res.status(200).json({
@@ -497,7 +497,7 @@ const getEquipmentById = async (req, res) => {
         msg: 'Equipment details retrieved successfully',
         data: {
           ...equipment,
-          equipmentConditionFiles: conditionFiles
+          equipmentImages: images
         },
         timestamp: new Date().toISOString()
       });
