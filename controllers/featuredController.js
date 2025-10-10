@@ -1,8 +1,10 @@
-// featureController.js - Handles featured freelancers and equipment
+// featuredController.js - Handles featured freelancers and equipment
 const { db } = require('../config/db');
 
-// Get backend URL from environment variable
-const BACKEND_URL = process.env.BACKEND_URL;
+// Get backend URL from environment variable with fallback
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5550';
+
+console.log('Backend URL configured:', BACKEND_URL);
 
 // ==================== FREELANCER FUNCTIONS ====================
 
@@ -294,6 +296,8 @@ const getFeaturedEquipment = (req, res) => {
 const getEquipmentById = (req, res) => {
   const { id } = req.params;
 
+  console.log('Fetching equipment with ID:', id);
+
   if (!id || isNaN(id)) {
     return res.status(400).json({
       success: false,
@@ -323,11 +327,13 @@ const getEquipmentById = (req, res) => {
       console.error('Database error fetching equipment:', err);
       return res.status(500).json({
         success: false,
-        msg: 'Error fetching equipment details'
+        msg: 'Error fetching equipment details',
+        error: err.message
       });
     }
 
     if (results.length === 0) {
+      console.log('Equipment not found with ID:', id);
       return res.status(404).json({
         success: false,
         msg: 'Equipment not found'
@@ -335,6 +341,7 @@ const getEquipmentById = (req, res) => {
     }
 
     const equipment = results[0];
+    console.log('Equipment found:', equipment.equipmentName);
     
     // Safely parse JSON fields
     try {
@@ -348,6 +355,7 @@ const getEquipmentById = (req, res) => {
       } else {
         equipment.equipmentImages = [];
       }
+      console.log('Parsed images count:', equipment.equipmentImages.length);
     } catch (e) {
       console.error('Error parsing equipmentImages:', e);
       equipment.equipmentImages = [];

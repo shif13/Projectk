@@ -431,89 +431,6 @@ const searchEquipment = async (req, res) => {
   }
 };
 
-const getEquipmentById = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!id || isNaN(id)) {
-      return res.status(400).json({
-        success: false,
-        msg: 'Invalid equipment ID',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    const query = `
-      SELECT 
-        id,
-        equipmentName,
-        equipmentType,
-        location,
-        contactPerson,
-        contactNumber,
-        contactEmail,
-        availability,
-        equipmentImages,
-        createdAt,
-        updatedAt
-      FROM equipment
-      WHERE id = ? AND isActive = TRUE
-    `;
-
-    db.query(query, [id], (err, results) => {
-      if (err) {
-        console.error('Database query error:', err);
-        return res.status(500).json({
-          success: false,
-          msg: 'Failed to retrieve equipment details',
-          error: err.message,
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      if (results.length === 0) {
-        return res.status(404).json({
-          success: false,
-          msg: 'Equipment not found',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      const equipment = results[0];
-
-      let images = [];
-      try {
-        if (equipment.equipmentImages) {
-          images = typeof equipment.equipmentImages === 'string'
-            ? JSON.parse(equipment.equipmentImages)
-            : equipment.equipmentImages;
-        }
-      } catch (parseError) {
-        console.error('Error parsing images:', parseError);
-      }
-
-      res.status(200).json({
-        success: true,
-        msg: 'Equipment details retrieved successfully',
-        data: {
-          ...equipment,
-          equipmentImages: images
-        },
-        timestamp: new Date().toISOString()
-      });
-    });
-
-  } catch (error) {
-    console.error('Get equipment by ID error:', error);
-    res.status(500).json({
-      success: false,
-      msg: 'Internal server error',
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-};
-
 const getLocations = async (req, res) => {
   try {
     const query = `
@@ -691,7 +608,6 @@ const sendEquipmentInquiry = async (req, res) => {
 
 module.exports = {
   searchEquipment,
-  getEquipmentById,
   getLocations,
   getEquipmentStats,
   sendEquipmentInquiry

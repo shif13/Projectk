@@ -59,16 +59,32 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// API Routes
+// ===== API ROUTES - ORDER MATTERS! =====
+// Most specific routes FIRST, general routes LAST
+
+// Login routes
 app.use("/api/login", loginRoutes);
+
+// Search routes
 app.use("/api/search", userSearchRoutes);
+
+// Contact routes
 app.use("/api/contact", contactRoutes);
+
+// Register and dashboard
 app.use("/api", registerRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+
+// Review routes
 app.use('/api/reviews', reviewRoutes);
+
+// IMPORTANT: Featured routes MUST come BEFORE other equipment routes
+// Because /equipment/details/:id is more specific than /equipment/search
+app.use("/api", featuredRoutes);
+
+// Equipment routes - these should come AFTER featured routes
 app.use("/api/equipment", equipmentRoutes);
 app.use("/api/equipment", equipmentSearchRoutes);
-app.use("/api", featuredRoutes);
   
 // 404 handler
 app.use("*", (req, res) => {
@@ -105,6 +121,12 @@ const startServer = async () => {
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📍 API Base URL: http://localhost:${PORT}/api`);
+      console.log('\n📋 Available routes:');
+      console.log('  - GET  /api/equipment/featured');
+      console.log('  - GET  /api/equipment/details/:id');
+      console.log('  - GET  /api/equipment/search');
+      console.log('  - POST /api/equipment/create');
     });
 
   } catch (error) {
