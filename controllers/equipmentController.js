@@ -202,159 +202,138 @@ const createEquipment = async (req, res) => {
   console.log(`[${startTime}] === EQUIPMENT CREATION REQUEST START ===`);
   
   try {
-    // Handle file upload
-    upload(req, res, async function (err) {
-      if (err) {
-        console.error('File upload error:', err);
-        return res.status(400).json({
-          success: false,
-          msg: 'File upload failed: ' + err.message,
-          timestamp: new Date().toISOString()
-        });
-      }
+    console.log('Request body:', req.body);
+    console.log('Files:', req.files);
 
-      try {
-        console.log('Request body:', req.body);
-        console.log('Files:', req.files);
+    const {
+      equipmentName, 
+      equipmentType, 
+      location, 
+      contactPerson, 
+      contactNumber, 
+      contactEmail, 
+      availability
+    } = req.body;
 
-        const {
-          equipmentName, 
-          equipmentType, 
-          location, 
-          contactPerson, 
-          contactNumber, 
-          contactEmail, 
-          availability
-        } = req.body;
-
-        // Validate required fields
-        const validationResult = validateRequiredFields({
-          equipmentName, 
-          equipmentType, 
-          contactPerson, 
-          contactNumber, 
-          contactEmail
-        });
-
-        if (!validationResult.isValid) {
-          console.log('Validation failed:', validationResult.message);
-          cleanupUploadedFiles(req);
-          return res.status(400).json({ 
-            success: false, 
-            msg: validationResult.message,
-            timestamp: new Date().toISOString()
-          });
-        }
-
-        // Start transaction
-        await new Promise((resolve, reject) => {
-          db.beginTransaction((err) => {
-            if (err) {
-              console.error('Transaction start error:', err);
-              return reject(err);
-            }
-            resolve();
-          });
-        });
-
-        try {
-          // Process file uploads (equipment images)
-          const equipmentImages = req.files?.equipmentImages?.map(file => ({
-            filename: file.filename,
-            originalName: file.originalname,
-            path: file.path,
-            size: file.size
-          })) || [];
-
-          // Prepare equipment data
-          const equipmentData = {
-            equipmentName: equipmentName.trim(),
-            equipmentType: equipmentType.trim(),
-            location: location?.trim() || '',
-            contactPerson: contactPerson.trim(),
-            contactNumber: contactNumber.trim(),
-            contactEmail: contactEmail.trim().toLowerCase(),
-            availability: availability || 'available',
-            equipmentImages
-          };
-
-          console.log('Inserting equipment data:', equipmentData);
-
-          // Insert equipment
-          const equipmentId = await insertEquipment(equipmentData);
-          console.log(`Equipment created with ID: ${equipmentId}`);
-
-          // Commit transaction
-          await new Promise((resolve, reject) => {
-            db.commit((err) => {
-              if (err) {
-                console.error('Transaction commit error:', err);
-                return reject(err);
-              }
-              resolve();
-            });
-          });
-
-          // Send confirmation email (non-blocking - don't wait for it)
-          sendEquipmentListingEmail(equipmentData)
-            .then(emailResult => {
-              if (emailResult.success) {
-                console.log('Equipment listing confirmation email sent');
-              } else {
-                console.log('Failed to send listing confirmation email:', emailResult.error);
-              }
-            })
-            .catch(emailError => {
-              console.error('Email sending error:', emailError);
-            });
-
-          const responseTime = Date.now() - startTime;
-          res.status(201).json({
-            success: true,
-            msg: 'Equipment listed successfully! Check your email for confirmation.',
-            data: {
-              id: equipmentId,
-              equipmentName: equipmentData.equipmentName,
-              equipmentType: equipmentData.equipmentType,
-              availability: equipmentData.availability
-            },
-            timestamp: new Date().toISOString(),
-            processingTime: `${responseTime}ms`
-          });
-
-        } catch (dbError) {
-          console.error('Database error:', dbError);
-          await rollbackTransaction();
-          throw dbError;
-        }
-
-      } catch (error) {
-        console.error('Equipment creation error:', error);
-        cleanupUploadedFiles(req);
-        
-        let statusCode = 500;
-        let errorMessage = 'Server error during equipment creation. Please try again.';
-        
-        if (error.code === 'ECONNREFUSED') {
-          statusCode = 503;
-          errorMessage = 'Database connection failed. Please try again later.';
-        }
-        
-        res.status(statusCode).json({ 
-          success: false, 
-          msg: errorMessage,
-          timestamp: new Date().toISOString(),
-          requestId: startTime
-        });
-      }
+    // Validate required fields
+    const validationResult = validateRequiredFields({
+      equipmentName, 
+      equipmentType, 
+      contactPerson, 
+      contactNumber, 
+      contactEmail
     });
 
+    if (!validationResult.isValid) {
+      console.log('Validation failed:', validationResult.message);
+      return res.status(400).json({ 
+        success: false, 
+        msg: validationResult.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Start transaction
+    await new Promise((resolve, reject) => {
+      db.beginTransaction((err) => {
+        if (err) {
+          console.error('Transaction start error:', err);
+          return reject(err);
+        }
+        resolve();
+      });
+    });
+
+    try {
+      // ✅ Process Cloudinary uploads - files are already uploaded by middleware
+      const equipmentImages = req.files ? req.files.map(file => ({
+        filename: file.originalname,
+        path: file.path, // This is the Cloudinary URL
+        cloudinaryId: file.filename, // Public ID for deletion if needed
+        size: file.size
+      })) : [];
+
+      console.log('📸 Cloudinary images uploaded:', equipmentImages);
+
+      // Prepare equipment data
+      const equipmentData = {
+        equipmentName: equipmentName.trim(),
+        equipmentType: equipmentType.trim(),
+        location: location?.trim() || '',
+        contactPerson: contactPerson.trim(),
+        contactNumber: contactNumber.trim(),
+        contactEmail: contactEmail.trim().toLowerCase(),
+        availability: availability || 'available',
+        equipmentImages
+      };
+
+      console.log('Inserting equipment data:', equipmentData);
+
+      // Insert equipment
+      const equipmentId = await insertEquipment(equipmentData);
+      console.log(`Equipment created with ID: ${equipmentId}`);
+
+      // Commit transaction
+      await new Promise((resolve, reject) => {
+        db.commit((err) => {
+          if (err) {
+            console.error('Transaction commit error:', err);
+            return reject(err);
+          }
+          resolve();
+        });
+      });
+
+      // Send confirmation email (non-blocking - don't wait for it)
+      sendEquipmentListingEmail(equipmentData)
+        .then(emailResult => {
+          if (emailResult.success) {
+            console.log('Equipment listing confirmation email sent');
+          } else {
+            console.log('Failed to send listing confirmation email:', emailResult.error);
+          }
+        })
+        .catch(emailError => {
+          console.error('Email sending error:', emailError);
+        });
+
+      const responseTime = Date.now() - startTime;
+      res.status(201).json({
+        success: true,
+        msg: 'Equipment listed successfully! Check your email for confirmation.',
+        data: {
+          id: equipmentId,
+          equipmentName: equipmentData.equipmentName,
+          equipmentType: equipmentData.equipmentType,
+          availability: equipmentData.availability,
+          images: equipmentImages
+        },
+        timestamp: new Date().toISOString(),
+        processingTime: `${responseTime}ms`
+      });
+
+    } catch (dbError) {
+      console.error('Database error:', dbError);
+      await rollbackTransaction();
+      throw dbError;
+    }
+
   } catch (error) {
-    console.error('Equipment creation controller error:', error);
-    res.status(500).json({
-      success: false,
-      msg: 'Internal server error',
-      timestamp: new Date().toISOString()
+    console.error('Equipment creation error:', error);
+    
+    let statusCode = 500;
+    let errorMessage = 'Server error during equipment creation. Please try again.';
+    
+    if (error.code === 'ECONNREFUSED') {
+      statusCode = 503;
+      errorMessage = 'Database connection failed. Please try again later.';
+    }
+    
+    res.status(statusCode).json({ 
+      success: false, 
+      msg: errorMessage,
+      timestamp: new Date().toISOString(),
+      requestId: startTime
     });
   }
 };

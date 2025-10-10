@@ -253,20 +253,19 @@ const getFeaturedEquipment = (req, res) => {
           }
           
           if (Array.isArray(files) && files.length > 0) {
-            const imageFile = files.find(f => 
-              f.filename && (
-                f.filename.toLowerCase().endsWith('.jpg') || 
-                f.filename.toLowerCase().endsWith('.jpeg') || 
-                f.filename.toLowerCase().endsWith('.png')
-              )
-            );
+            // ✅ Use path directly - it's either a Cloudinary URL or local path
+            const imageFile = files[0];
             if (imageFile && imageFile.path) {
-              const cleanPath = imageFile.path.replace(/\\/g, '/').replace(/^uploads\//, '');
-              image = `${BACKEND_URL}/uploads/${cleanPath}`;
-              
-              console.log('Original path:', imageFile.path);
-              console.log('Cleaned path:', cleanPath);
-              console.log('Final URL:', image);
+              // ✅ If it's already a full URL (Cloudinary), use it as-is
+              if (imageFile.path.startsWith('http://') || imageFile.path.startsWith('https://')) {
+                image = imageFile.path;
+                console.log('Cloudinary URL:', image);
+              } else {
+                // Fallback for old local images
+                const cleanPath = imageFile.path.replace(/\\/g, '/').replace(/^uploads\//, '');
+                image = `${BACKEND_URL}/uploads/${cleanPath}`;
+                console.log('Local image URL:', image);
+              }
             }
           }
         } catch (e) {
