@@ -1,5 +1,6 @@
 // equipmentSearchController.js - For searching and filtering equipment
 const { db } = require('../config/db');
+const { sendEquipmentInquiryEmail, sendInquiryConfirmationEmail } = require('../services/emailService');
 
 // Enhanced hierarchical location matching with comprehensive locations
 const buildLocationQuery = (searchLocation) => {
@@ -557,13 +558,9 @@ const sendEquipmentInquiry = async (req, res) => {
       });
     }
 
-    // Import email service
-    const { sendEquipmentInquiryEmail } = require('../services/emailService');
-
-    // Prepare equipment data (matching the email template format)
+    // Prepare equipment data
     const equipmentData = {
       name: equipmentName,
-      price: 'Contact for pricing', // You can add this field if needed
       location: location || 'Not specified',
       ownerEmail: ownerEmail,
       owner: ownerName || 'Equipment Owner'
@@ -577,26 +574,32 @@ const sendEquipmentInquiry = async (req, res) => {
       message: message
     };
 
-    // Send email using the existing email service
-    const emailResult = await sendEquipmentInquiryEmail(equipmentData, inquiryData);
+    console.log('📧 Sending equipment inquiry emails...');
 
-    if (emailResult.success) {
+    // Send email to equipment owner
+    const ownerEmailResult = await sendEquipmentInquiryEmail(equipmentData, inquiryData);
+    
+    // Send confirmation to inquirer
+    const inquirerEmailResult = await sendInquiryConfirmationEmail(equipmentData, inquiryData);
+
+    if (ownerEmailResult.success && inquirerEmailResult.success) {
+      console.log('✅ Both inquiry emails sent successfully');
       res.status(200).json({
         success: true,
         msg: 'Inquiry sent successfully! The equipment owner will contact you soon.',
         timestamp: new Date().toISOString()
       });
     } else {
+      console.error('⚠️ Some emails failed:', { ownerEmailResult, inquirerEmailResult });
       res.status(500).json({
         success: false,
-        msg: 'Failed to send inquiry email. Please try again later.',
-        error: emailResult.error,
+        msg: 'Failed to send inquiry. Please try again later.',
         timestamp: new Date().toISOString()
       });
     }
 
   } catch (error) {
-    console.error('Send equipment inquiry error:', error);
+    console.error('❌ Send equipment inquiry error:', error);
     res.status(500).json({
       success: false,
       msg: 'Internal server error',
@@ -606,9 +609,84 @@ const sendEquipmentInquiry = async (req, res) => {
   }
 };
 
+
+const getFeaturedEquipment = async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        id,
+        equipmentName,
+        equipmentType,
+        location,
+        contactPerson,
+        contactNumber,
+        contactEmail,
+        availability,
+        description,
+        equipmentImages,
+        createdAt
+      FROM equipment
+      WHERE isActive = TRUE
+        AND availability = 'available'
+        AND equipmentImages IS NOT NULL
+        AND equipmentImages != '[]'
+        AND equipmentImages != ''
+      ORDER BY createdAt DESC
+      LIMIT 3
+    `;
+
+    db.query(query, (err, results) => {
+      if (err) {
+        console.error('Featured equipment error:', err);
+        return res.status(500).json({
+          success: false,
+          msg: 'Failed to fetch featured equipment',
+          error: err.message
+        });
+      }
+
+      const equipmentList = results.map(item => {
+        let images = [];
+        try {
+          if (item.equipmentImages) {
+            images = typeof item.equipmentImages === 'string' 
+              ? JSON.parse(item.equipmentImages)
+              : item.equipmentImages;
+          }
+        } catch (parseError) {
+          console.error('Error parsing images for equipment:', item.id, parseError);
+        }
+
+        return {
+          ...item,
+          equipmentImages: images,
+          image: images.length > 0 ? images[0] : null // First image for featured display
+        };
+      });
+
+      console.log(`✅ Found ${equipmentList.length} featured equipment items`);
+
+      res.status(200).json({
+        success: true,
+        equipment: equipmentList,
+        count: equipmentList.length
+      });
+    });
+
+  } catch (error) {
+    console.error('Get featured equipment error:', error);
+    res.status(500).json({
+      success: false,
+      msg: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   searchEquipment,
   getLocations,
   getEquipmentStats,
-  sendEquipmentInquiry
+  sendEquipmentInquiry,
+  getFeaturedEquipment
 };

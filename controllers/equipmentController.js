@@ -1,57 +1,550 @@
-// equipmentController.js - For equipment creation and profile management
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+// equipmentController.js - Frontend Direct Upload to Cloudinary
 const { db } = require('../config/db');
-const { cleanupUploadedFiles } = require('../middleware/registerMiddleware');
-const { sendEquipmentListingEmail } = require('../services/emailService');
+const { sendProfileUpdateEmail, sendEquipmentAddedEmail } = require('../services/emailService');
 
-// Configure multer for file uploads (equipment images)
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadPath = 'uploads/equipment/';
-    
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    
-    cb(null, uploadPath);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
+// ==========================================
+// GET EQUIPMENT OWNER PROFILE
+// ==========================================
+const getEquipmentOwnerProfile = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
 
-const fileFilter = (req, file, cb) => {
-  if (file.fieldname === 'equipmentImages') {
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed'), false);
+    console.log('🔍 Request received for profile');
+    console.log('👤 User ID from token:', userId);
+
+    if (!userId) {
+      console.log('❌ No userId in request');
+      return res.status(401).json({ 
+        success: false, 
+        msg: 'Authentication required' 
+      });
     }
-  } else {
-    cb(new Error('Unexpected field'), false);
+
+    console.log('📋 Fetching equipment owner profile for user:', userId);
+
+    // Get user basic info
+    const userQuery = `
+      SELECT id, userName, email, firstName, lastName, 
+             phone, location, isEquipmentOwner, createdAt 
+      FROM users 
+      WHERE id = ?
+    `;
+    
+    db.query(userQuery, [userId], (err, users) => {
+      if (err) {
+        console.error('❌ Database error getting user:', err);
+        return res.status(500).json({ 
+          success: false, 
+          msg: 'Error fetching user profile',
+          error: err.message 
+        });
+      }
+
+      console.log('📊 Query result:', users);
+
+      if (!users || users.length === 0) {
+        console.log('❌ User not found in database');
+        return res.status(404).json({ 
+          success: false, 
+          msg: 'User not found' 
+        });
+      }
+
+      const user = users[0];
+      console.log('✅ User found:', {
+        id: user.id,
+        userName: user.userName,
+        isEquipmentOwner: user.isEquipmentOwner
+      });
+
+      // Check if user has equipment owner role
+      if (!user.isEquipmentOwner) {
+        console.log('⚠️ User does not have equipment owner role');
+        return res.status(403).json({
+          success: false,
+          msg: 'Access denied. Equipment owner role required.'
+        });
+      }
+
+      console.log('✅ User is an equipment owner, fetching equipment...');
+
+      // Get user's equipment list
+      const equipmentQuery = 'SELECT * FROM equipment WHERE userId = ? ORDER BY createdAt DESC';
+      
+      db.query(equipmentQuery, [userId], (err, equipment) => {
+        if (err) {
+          console.error('❌ Database error getting equipment:', err);
+          return res.status(500).json({ 
+            success: false, 
+            msg: 'Error fetching equipment',
+            error: err.message 
+          });
+        }
+
+        console.log(`📦 Found ${equipment ? equipment.length : 0} equipment items`);
+
+        // Parse equipment images JSON safely
+        const equipmentList = (equipment || []).map(eq => {
+          try {
+            return {
+              ...eq,
+              equipmentImages: eq.equipmentImages ? JSON.parse(eq.equipmentImages) : []
+            };
+          } catch (parseError) {
+            console.error('⚠️ Error parsing images for equipment:', eq.id, parseError.message);
+            return {
+              ...eq,
+              equipmentImages: []
+            };
+          }
+        });
+
+        console.log('✅ Profile and equipment fetched successfully');
+
+        return res.status(200).json({
+          success: true,
+          user,
+          equipment: equipmentList
+        });
+      });
+    });
+  } catch (error) {
+    console.error('❌ Unexpected error in getEquipmentOwnerProfile:', error);
+    
+    // Make sure we send a response even if there's an error
+    return res.status(500).json({ 
+      success: false, 
+      msg: 'Server error',
+      error: error.message 
+    });
   }
 };
 
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB per file
-    files: 10
-  }
-}).fields([
-  { name: 'equipmentImages', maxCount: 5 }
-]);
+// ==========================================
+// UPDATE EQUIPMENT OWNER PROFILE
+// ==========================================
 
-// Create equipment table
+const updateEquipmentOwnerProfile = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({ 
+        success: false, 
+        msg: 'Authentication required' 
+      });
+    }
+
+    const { firstName, lastName, phone, email, location } = req.body;
+
+    console.log('📝 Updating profile for user:', userId);
+
+    // Validation
+    const errors = [];
+    if (!firstName || firstName.trim().length < 1) {
+      errors.push('First name is required');
+    }
+    if (!lastName || lastName.trim().length < 1) {
+      errors.push('Last name is required');
+    }
+    if (!phone || phone.trim().length < 8) {
+      errors.push('Valid phone number is required');
+    }
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors.push('Valid email is required');
+    }
+
+    if (errors.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        msg: errors.join(', ') 
+      });
+    }
+
+    // Check if email is already taken by another user
+    const emailCheckQuery = 'SELECT id FROM users WHERE email = ? AND id != ?';
+    
+    db.query(emailCheckQuery, [email.trim().toLowerCase(), userId], (err, results) => {
+      if (err) {
+        console.error('❌ Email check error:', err);
+        return res.status(500).json({ 
+          success: false, 
+          msg: 'Error checking email availability' 
+        });
+      }
+
+      if (results.length > 0) {
+        return res.status(400).json({ 
+          success: false, 
+          msg: 'Email is already in use by another account' 
+        });
+      }
+
+      // Update profile
+      const updateQuery = `
+        UPDATE users 
+        SET firstName = ?, lastName = ?, phone = ?, email = ?, location = ?
+        WHERE id = ?
+      `;
+
+      db.query(updateQuery, [
+        firstName.trim(),
+        lastName.trim(),
+        phone.trim(),
+        email.trim().toLowerCase(),
+        location ? location.trim() : null,
+        userId
+      ], async (err) => {
+        if (err) {
+          console.error('❌ Update profile error:', err);
+          return res.status(500).json({ 
+            success: false, 
+            msg: 'Error updating profile' 
+          });
+        }
+
+        console.log('✅ Profile updated successfully for user:', userId);
+
+        // 📧 Send profile update email
+        try {
+          await sendProfileUpdateEmail({
+            email: email.trim().toLowerCase(),
+            firstName: firstName.trim()
+          });
+          console.log('✅ Profile update email sent');
+        } catch (emailError) {
+          console.error('⚠️ Failed to send profile update email:', emailError);
+        }
+
+        res.json({ 
+          success: true, 
+          msg: 'Profile updated successfully' 
+        });
+      });
+    });
+  } catch (error) {
+    console.error('❌ Update profile error:', error);
+    res.status(500).json({ 
+      success: false, 
+      msg: 'Server error' 
+    });
+  }
+};
+
+// ==========================================
+// ADD EQUIPMENT (Cloudinary URLs from frontend)
+// ==========================================
+
+const addEquipment = async (req, res) => {
+  const startTime = Date.now();
+  console.log(`[${startTime}] === ADD EQUIPMENT REQUEST ===`);
+
+  try {
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({ 
+        success: false, 
+        msg: 'Authentication required' 
+      });
+    }
+
+    const {
+      equipmentName,
+      equipmentType,
+      location,
+      contactPerson,
+      contactNumber,
+      contactEmail,
+      availability,
+      description,
+      equipmentImages // Array of Cloudinary URLs from frontend
+    } = req.body;
+
+    // Validation
+    const errors = [];
+    if (!equipmentName || equipmentName.trim().length < 2) {
+      errors.push('Equipment name must be at least 2 characters');
+    }
+    if (!equipmentType || equipmentType.trim().length < 2) {
+      errors.push('Equipment type is required');
+    }
+    if (!contactPerson || contactPerson.trim().length < 2) {
+      errors.push('Contact person is required');
+    }
+    if (!contactNumber || contactNumber.trim().length < 8) {
+      errors.push('Valid contact number is required');
+    }
+    if (!contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+      errors.push('Valid email is required');
+    }
+
+    if (errors.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        msg: errors.join(', ') 
+      });
+    }
+
+    console.log('📸 Images provided:', equipmentImages?.length || 0);
+
+    // Insert equipment
+    const insertQuery = `
+      INSERT INTO equipment (
+        userId, equipmentName, equipmentType, location, 
+        contactPerson, contactNumber, contactEmail, 
+        availability, description, equipmentImages
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    db.query(insertQuery, [
+      userId,
+      equipmentName.trim(),
+      equipmentType.trim(),
+      location ? location.trim() : null,
+      contactPerson.trim(),
+      contactNumber.trim(),
+      contactEmail.trim().toLowerCase(),
+      availability || 'available',
+      description ? description.trim() : null,
+      JSON.stringify(equipmentImages || [])
+    ], (err, result) => {
+      if (err) {
+        console.error('❌ Insert equipment error:', err);
+        return res.status(500).json({ 
+          success: false, 
+          msg: 'Error adding equipment' 
+        });
+      }
+
+      const responseTime = Date.now() - startTime;
+      const equipmentId = result.insertId;
+      console.log(`✅ Equipment added with ID: ${equipmentId} in ${responseTime}ms`);
+
+      // Send response immediately
+      res.status(201).json({
+        success: true,
+        msg: 'Equipment added successfully!',
+        equipment: {
+          id: equipmentId,
+          equipmentName: equipmentName.trim(),
+          equipmentType: equipmentType.trim(),
+          availability: availability || 'available',
+          images: equipmentImages || []
+        },
+        timestamp: new Date().toISOString(),
+        processingTime: `${responseTime}ms`
+      });
+
+      // 📧 Send email asynchronously (after response)
+      console.log('📧 Attempting to send equipment added email...');
+      
+      // Get user info for email
+      db.query('SELECT firstName, email FROM users WHERE id = ?', [userId], async (err, users) => {
+        if (err) {
+          console.error('⚠️ Error fetching user for email:', err);
+          return;
+        }
+
+        if (users.length === 0) {
+          console.error('⚠️ User not found for email');
+          return;
+        }
+
+        const user = users[0];
+        console.log(`📧 Sending equipment added email to: ${user.email}`);
+
+        try {
+          await sendEquipmentAddedEmail(
+            {
+              firstName: user.firstName,
+              email: user.email
+            },
+            equipmentName.trim()
+          );
+          console.log('✅ Equipment added email sent successfully!');
+        } catch (emailError) {
+          console.error('❌ Failed to send equipment added email:', emailError);
+          console.error('❌ Email error details:', emailError.message);
+        }
+      });
+    });
+
+  } catch (error) {
+    console.error('❌ Add equipment error:', error);
+    res.status(500).json({ 
+      success: false, 
+      msg: 'Server error' 
+    });
+  }
+};
+
+// ==========================================
+// UPDATE EQUIPMENT (Cloudinary URLs from frontend)
+// ==========================================
+
+const updateEquipment = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const equipmentId = req.params.id;
+
+    if (!userId) {
+      return res.status(401).json({ 
+        success: false, 
+        msg: 'Authentication required' 
+      });
+    }
+
+    const {
+      equipmentName,
+      equipmentType,
+      location,
+      contactPerson,
+      contactNumber,
+      contactEmail,
+      availability,
+      description,
+      equipmentImages // Array of Cloudinary URLs from frontend
+    } = req.body;
+
+    // Check if equipment belongs to user
+    const checkQuery = 'SELECT id FROM equipment WHERE id = ? AND userId = ?';
+    
+    db.query(checkQuery, [equipmentId, userId], (err, results) => {
+      if (err) {
+        console.error('❌ Check equipment error:', err);
+        return res.status(500).json({ 
+          success: false, 
+          msg: 'Error checking equipment' 
+        });
+      }
+
+      if (results.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          msg: 'Equipment not found or access denied' 
+        });
+      }
+
+      // Update equipment
+      const updateQuery = `
+        UPDATE equipment 
+        SET equipmentName = ?, equipmentType = ?, location = ?,
+            contactPerson = ?, contactNumber = ?, contactEmail = ?,
+            availability = ?, description = ?, equipmentImages = ?
+        WHERE id = ? AND userId = ?
+      `;
+
+      db.query(updateQuery, [
+        equipmentName ? equipmentName.trim() : null,
+        equipmentType ? equipmentType.trim() : null,
+        location ? location.trim() : null,
+        contactPerson ? contactPerson.trim() : null,
+        contactNumber ? contactNumber.trim() : null,
+        contactEmail ? contactEmail.trim().toLowerCase() : null,
+        availability || 'available',
+        description ? description.trim() : null,
+        JSON.stringify(equipmentImages || []),
+        equipmentId,
+        userId
+      ], (err) => {
+        if (err) {
+          console.error('❌ Update equipment error:', err);
+          return res.status(500).json({ 
+            success: false, 
+            msg: 'Error updating equipment' 
+          });
+        }
+
+        console.log('✅ Equipment updated:', equipmentId);
+        res.json({ 
+          success: true, 
+          msg: 'Equipment updated successfully'
+        });
+      });
+    });
+  } catch (error) {
+    console.error('❌ Update equipment error:', error);
+    res.status(500).json({ 
+      success: false, 
+      msg: 'Server error' 
+    });
+  }
+};
+
+// ==========================================
+// DELETE EQUIPMENT
+// ==========================================
+
+const deleteEquipment = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const equipmentId = req.params.id;
+
+    if (!userId) {
+      return res.status(401).json({ 
+        success: false, 
+        msg: 'Authentication required' 
+      });
+    }
+
+    // Check if equipment belongs to user
+    const checkQuery = 'SELECT equipmentImages FROM equipment WHERE id = ? AND userId = ?';
+    
+    db.query(checkQuery, [equipmentId, userId], (err, results) => {
+      if (err) {
+        console.error('❌ Check equipment error:', err);
+        return res.status(500).json({ 
+          success: false, 
+          msg: 'Error checking equipment' 
+        });
+      }
+
+      if (results.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          msg: 'Equipment not found or access denied' 
+        });
+      }
+
+      // Delete equipment
+      const deleteQuery = 'DELETE FROM equipment WHERE id = ? AND userId = ?';
+      
+      db.query(deleteQuery, [equipmentId, userId], (err) => {
+        if (err) {
+          console.error('❌ Delete equipment error:', err);
+          return res.status(500).json({ 
+            success: false, 
+            msg: 'Error deleting equipment' 
+          });
+        }
+
+        console.log('✅ Equipment deleted:', equipmentId);
+        res.json({ 
+          success: true, 
+          msg: 'Equipment deleted successfully' 
+        });
+      });
+    });
+  } catch (error) {
+    console.error('❌ Delete equipment error:', error);
+    res.status(500).json({ 
+      success: false, 
+      msg: 'Server error' 
+    });
+  }
+};
+
+// ==========================================
+// CREATE EQUIPMENT TABLE
+// ==========================================
+
 const createEquipmentTable = () => {
   return new Promise((resolve, reject) => {
     const createTableQuery = `
       CREATE TABLE IF NOT EXISTS equipment (
         id INT PRIMARY KEY AUTO_INCREMENT,
+        userId INT NOT NULL,
         equipmentName VARCHAR(255) NOT NULL,
         equipmentType VARCHAR(100) NOT NULL,
         location VARCHAR(255),
@@ -59,10 +552,13 @@ const createEquipmentTable = () => {
         contactNumber VARCHAR(20) NOT NULL,
         contactEmail VARCHAR(255) NOT NULL,
         availability ENUM('available', 'on-hire') DEFAULT 'available',
+        description TEXT,
         equipmentImages JSON,
         isActive BOOLEAN DEFAULT TRUE,
         createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_userId (userId),
         INDEX idx_availability (availability),
         INDEX idx_location (location),
         INDEX idx_equipment_type (equipmentType)
@@ -71,276 +567,35 @@ const createEquipmentTable = () => {
 
     db.query(createTableQuery, (err) => {
       if (err) {
-        console.error('Error creating equipment table:', err.message);
+        console.error('❌ Error creating equipment table:', err.message);
         return reject(err);
       }
+      console.log('✅ Equipment table initialized');
       resolve();
     });
   });
 };
 
-// Create contact inquiries table
-const createContactInquiriesTable = () => {
-  return new Promise((resolve, reject) => {
-    const createTableQuery = `
-      CREATE TABLE IF NOT EXISTS contact_inquiries (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        equipment_id INT NOT NULL,
-        requester_name VARCHAR(255) NOT NULL,
-        requester_email VARCHAR(255) NOT NULL,
-        requester_phone VARCHAR(20),
-        message TEXT NOT NULL,
-        status ENUM('pending', 'responded', 'resolved') DEFAULT 'pending',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        
-        INDEX idx_equipment_id (equipment_id),
-        INDEX idx_requester_email (requester_email),
-        INDEX idx_created_at (created_at),
-        
-        FOREIGN KEY (equipment_id) REFERENCES equipment(id) ON DELETE CASCADE
-      )
-    `;
-
-    db.query(createTableQuery, (err) => {
-      if (err) {
-        console.error('Error creating contact_inquiries table:', err.message);
-        return reject(err);
-      }
-      resolve();
-    });
-  });
-};
-
-// Initialize tables
+// Initialize table on load
 let tablesInitialized = false;
 const initializeTables = async () => {
   if (!tablesInitialized) {
     try {
       await createEquipmentTable();
-      console.log('Equipment table initialized successfully');
-      
-      await createContactInquiriesTable();
-      console.log('Contact inquiries table initialized successfully');
-      
       tablesInitialized = true;
     } catch (error) {
-      console.error('Failed to initialize tables:', error);
+      console.error('❌ Failed to initialize equipment table:', error);
     }
   }
 };
 
 initializeTables();
 
-// Validation functions
-const validateRequiredFields = ({ equipmentName, equipmentType, contactPerson, contactNumber, contactEmail }) => {
-  const errors = [];
-
-  if (!equipmentName || equipmentName.trim().length < 2) {
-    errors.push('Equipment name must be at least 2 characters');
-  }
-  if (!equipmentType || equipmentType.trim().length < 2) {
-    errors.push('Equipment type is required');
-  }
-  if (!contactPerson || contactPerson.trim().length < 2) {
-    errors.push('Contact person is required');
-  }
-  if (!contactNumber || contactNumber.trim().length < 8) {
-    errors.push('Valid contact number is required');
-  }
-  if (!contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
-    errors.push('Valid email is required');
-  }
-
-  return {
-    isValid: errors.length === 0,
-    message: errors.length > 0 ? errors.join(', ') : null
-  };
-};
-
-// Database operations
-const insertEquipment = (equipmentData) => {
-  return new Promise((resolve, reject) => {
-    const query = `
-      INSERT INTO equipment (
-        equipmentName, equipmentType, location, contactPerson, 
-        contactNumber, contactEmail, availability, equipmentImages
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    
-    const values = [
-      equipmentData.equipmentName,
-      equipmentData.equipmentType,
-      equipmentData.location || '',
-      equipmentData.contactPerson,
-      equipmentData.contactNumber,
-      equipmentData.contactEmail,
-      equipmentData.availability || 'available',
-      JSON.stringify(equipmentData.equipmentImages || [])
-    ];
-
-    db.query(query, values, (err, result) => {
-      if (err) return reject(err);
-      resolve(result.insertId);
-    });
-  });
-};
-
-
-const rollbackTransaction = () => {
-  return new Promise((resolve) => {
-    db.rollback(() => {
-      console.log('Transaction rolled back');
-      resolve();
-    });
-  });
-};
-
-// Main equipment creation function
-const createEquipment = async (req, res) => {
-  const startTime = Date.now();
-  console.log(`[${startTime}] === EQUIPMENT CREATION REQUEST START ===`);
-  
-  try {
-    console.log('Request body:', req.body);
-    console.log('Files:', req.files);
-
-    const {
-      equipmentName, 
-      equipmentType, 
-      location, 
-      contactPerson, 
-      contactNumber, 
-      contactEmail, 
-      availability
-    } = req.body;
-
-    // Validate required fields
-    const validationResult = validateRequiredFields({
-      equipmentName, 
-      equipmentType, 
-      contactPerson, 
-      contactNumber, 
-      contactEmail
-    });
-
-    if (!validationResult.isValid) {
-      console.log('Validation failed:', validationResult.message);
-      return res.status(400).json({ 
-        success: false, 
-        msg: validationResult.message,
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // Start transaction
-    await new Promise((resolve, reject) => {
-      db.beginTransaction((err) => {
-        if (err) {
-          console.error('Transaction start error:', err);
-          return reject(err);
-        }
-        resolve();
-      });
-    });
-
-    try {
-      // ✅ Process Cloudinary uploads - files are already uploaded by middleware
-      const equipmentImages = req.files ? req.files.map(file => ({
-        filename: file.originalname,
-        path: file.path, // This is the Cloudinary URL
-        cloudinaryId: file.filename, // Public ID for deletion if needed
-        size: file.size
-      })) : [];
-
-      console.log('📸 Cloudinary images uploaded:', equipmentImages);
-
-      // Prepare equipment data
-      const equipmentData = {
-        equipmentName: equipmentName.trim(),
-        equipmentType: equipmentType.trim(),
-        location: location?.trim() || '',
-        contactPerson: contactPerson.trim(),
-        contactNumber: contactNumber.trim(),
-        contactEmail: contactEmail.trim().toLowerCase(),
-        availability: availability || 'available',
-        equipmentImages
-      };
-
-      console.log('Inserting equipment data:', equipmentData);
-
-      // Insert equipment
-      const equipmentId = await insertEquipment(equipmentData);
-      console.log(`Equipment created with ID: ${equipmentId}`);
-
-      // Commit transaction
-      await new Promise((resolve, reject) => {
-        db.commit((err) => {
-          if (err) {
-            console.error('Transaction commit error:', err);
-            return reject(err);
-          }
-          resolve();
-        });
-      });
-
-      // Send confirmation email (non-blocking - don't wait for it)
-      sendEquipmentListingEmail(equipmentData)
-        .then(emailResult => {
-          if (emailResult.success) {
-            console.log('Equipment listing confirmation email sent');
-          } else {
-            console.log('Failed to send listing confirmation email:', emailResult.error);
-          }
-        })
-        .catch(emailError => {
-          console.error('Email sending error:', emailError);
-        });
-
-      const responseTime = Date.now() - startTime;
-      res.status(201).json({
-        success: true,
-        msg: 'Equipment listed successfully! Check your email for confirmation.',
-        data: {
-          id: equipmentId,
-          equipmentName: equipmentData.equipmentName,
-          equipmentType: equipmentData.equipmentType,
-          availability: equipmentData.availability,
-          images: equipmentImages
-        },
-        timestamp: new Date().toISOString(),
-        processingTime: `${responseTime}ms`
-      });
-
-    } catch (dbError) {
-      console.error('Database error:', dbError);
-      await rollbackTransaction();
-      throw dbError;
-    }
-
-  } catch (error) {
-    console.error('Equipment creation error:', error);
-    
-    let statusCode = 500;
-    let errorMessage = 'Server error during equipment creation. Please try again.';
-    
-    if (error.code === 'ECONNREFUSED') {
-      statusCode = 503;
-      errorMessage = 'Database connection failed. Please try again later.';
-    }
-    
-    res.status(statusCode).json({ 
-      success: false, 
-      msg: errorMessage,
-      timestamp: new Date().toISOString(),
-      requestId: startTime
-    });
-  }
-};
-
-
 module.exports = {
-  createEquipment,
-  createEquipmentTable,
-  createContactInquiriesTable
+  getEquipmentOwnerProfile,
+  updateEquipmentOwnerProfile,
+  addEquipment,
+  updateEquipment,
+  deleteEquipment,
+  createEquipmentTable
 };

@@ -1,4 +1,3 @@
-
 const express = require('express');
 const router = express.Router();
 const { 
@@ -10,16 +9,16 @@ const {
   getReviewStats 
 } = require('../controllers/reviewController');
 
-const authenticateToken = require('../middleware/authMiddleware');
+const { authMiddleware } = require('../middleware/authMiddleware');
 
 // Public routes
 router.get('/', getAllReviews);
 router.get('/stats', getReviewStats);
 
 // Protected routes
-router.get('/my-review', authenticateToken, getUserReview);
-router.post('/', authenticateToken, createReview);
-router.put('/:id', authenticateToken, updateReview);
-router.delete('/:id', authenticateToken, deleteReview);
+router.get('/my-review', authMiddleware, getUserReview);
+router.post('/', authMiddleware, createReview);
+router.put('/:id', authMiddleware, updateReview);
+router.delete('/:id', authMiddleware, deleteReview);
 
 module.exports = router;

@@ -1,11 +1,20 @@
+// routes/equipmentRoutes.js
+// Equipment Owner CRUD Operations (Protected Routes)
 const express = require('express');
 const router = express.Router();
-const {uploadEquipmentImages} = require('../config/cloudinary')
-const {
-  createEquipment
-} = require('../controllers/equipmentController');
+const equipmentController = require('../controllers/equipmentController');
+const { verifyToken } = require('../middleware/authMiddleware');
 
-// Create new equipment listing
-router.post('/create', uploadEquipmentImages.array('equipmentImages', 10), createEquipment);
+// All routes require authentication
+router.use(verifyToken);
+
+// Profile routes - Owner managing their equipment
+router.get('/profile', equipmentController.getEquipmentOwnerProfile);
+router.put('/profile', equipmentController.updateEquipmentOwnerProfile);
+
+// Equipment CRUD routes (frontend sends Cloudinary URLs)
+router.post('/add', equipmentController.addEquipment);
+router.put('/:id', equipmentController.updateEquipment);
+router.delete('/:id', equipmentController.deleteEquipment);
 
 module.exports = router;

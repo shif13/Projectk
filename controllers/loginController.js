@@ -1,3 +1,5 @@
+// loginController.js - Simplified for signup -> role selection -> dashboard flow
+
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
@@ -25,7 +27,10 @@ const validatePassword = (password) => {
     return password && password.length >= 6;
 };
 
-// LOGIN USER - accepts both username and email
+// ==========================================
+// LOGIN USER (SIMPLIFIED - JUST LOGIN)
+// ==========================================
+
 const loginUser = async (req, res) => {
     try {
         console.log("🔥 Incoming login request for:", req.body.usernameOrEmail);
@@ -41,9 +46,15 @@ const loginUser = async (req, res) => {
         }
 
         // Find user by username or email
-        const query = 'SELECT id, userName, email, password, userType, firstName, lastName FROM users WHERE email = ? OR userName = ?';
+        const query = `
+            SELECT id, userName, email, password, 
+                   isFreelancer, isEquipmentOwner, rolesSelected,
+                   firstName, lastName, phone, location 
+            FROM users 
+            WHERE LOWER(email) = LOWER(?) OR LOWER(userName) = LOWER(?)
+        `;
         
-        db.query(query, [usernameOrEmail.toLowerCase(), usernameOrEmail.toUpperCase()], async (err, users) => {
+        db.query(query, [usernameOrEmail, usernameOrEmail], async (err, users) => {
             if (err) {
                 console.error("❌ Database login error:", err);
                 return res.status(500).json({ 
@@ -56,12 +67,12 @@ const loginUser = async (req, res) => {
                 console.warn("⚠️ Login attempt with non-existent user:", usernameOrEmail);
                 return res.status(401).json({ 
                     success: false, 
-                    msg: 'Invalid credentials' 
+                    msg: 'Invalid username/email or password' 
                 });
             }
 
             const user = users[0];
-            console.log("👤 Found user:", user.userName);
+            console.log("👤 Found user:", user.userName, "| Roles selected:", user.rolesSelected);
 
             try {
                 // Verify password
@@ -71,7 +82,7 @@ const loginUser = async (req, res) => {
                     console.warn("⚠️ Invalid password attempt for user:", usernameOrEmail);
                     return res.status(401).json({ 
                         success: false, 
-                        msg: 'Invalid credentials' 
+                        msg: 'Invalid username/email or password' 
                     });
                 }
 
@@ -79,14 +90,18 @@ const loginUser = async (req, res) => {
                 const token = jwt.sign(
                     { 
                         userId: user.id, 
-                        email: user.email, 
-                        userType: user.userType 
+                        email: user.email,
+                        isFreelancer: user.isFreelancer,
+                        isEquipmentOwner: user.isEquipmentOwner,
+                        rolesSelected: user.rolesSelected
                     },
                     process.env.JWT_SECRET || 'fallback_secret_key',
                     { expiresIn: '24h' }
                 );
 
                 console.log("✅ Login successful for user:", user.userName);
+                
+                // Return user data - frontend will handle routing based on rolesSelected
                 res.json({
                     success: true,
                     msg: 'Login successful',
@@ -95,9 +110,13 @@ const loginUser = async (req, res) => {
                         id: user.id,
                         userName: user.userName,
                         email: user.email,
-                        userType: user.userType,
                         firstName: user.firstName,
-                        lastName: user.lastName
+                        lastName: user.lastName,
+                        phone: user.phone,
+                        location: user.location,
+                        isFreelancer: user.isFreelancer,
+                        isEquipmentOwner: user.isEquipmentOwner,
+                        rolesSelected: user.rolesSelected // Frontend uses this to route
                     }
                 });
             } catch (authError) {
@@ -117,7 +136,10 @@ const loginUser = async (req, res) => {
     }
 };
 
-// FORGOT PASSWORD - generate and send reset token
+// ==========================================
+// FORGOT PASSWORD
+// ==========================================
+
 const forgotPassword = async (req, res) => {
     try {
         console.log('🔍 Forgot password function called with body:', req.body);
@@ -132,10 +154,9 @@ const forgotPassword = async (req, res) => {
             });
         }
 
-        // Check if user exists
-        const checkUserQuery = 'SELECT id, firstName, lastName, userName, email FROM users WHERE email = ?';
+        const checkUserQuery = 'SELECT id, firstName, lastName, userName, email FROM users WHERE LOWER(email) = LOWER(?)';
         
-        db.query(checkUserQuery, [email.toLowerCase()], async (err, users) => {
+        db.query(checkUserQuery, [email], async (err, users) => {
             if (err) {
                 console.error('🔍 Database error in forgot password:', err);
                 return res.status(500).json({
@@ -148,23 +169,20 @@ const forgotPassword = async (req, res) => {
 
             if (users.length === 0) {
                 console.log('🔍 No user found with email:', email);
-                // Don't reveal if email exists or not for security
                 return res.status(200).json({
                     success: true,
-                    msg: 'If email exists, reset instructions have been sent'
+                    msg: 'If this email exists, reset instructions have been sent'
                 });
             }
 
             const user = users[0];
 
             try {
-                // Generate 6-digit reset token
                 const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
-                const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
+                const resetTokenExpiry = new Date(Date.now() + 3600000);
 
                 console.log('🔍 Generated reset token for user:', user.email, 'Token:', resetToken);
 
-                // Store reset token in database
                 const updateTokenQuery = 'UPDATE users SET resetToken = ?, resetTokenExpiry = ? WHERE id = ?';
                 
                 db.query(updateTokenQuery, [resetToken, resetTokenExpiry, user.id], async (err) => {
@@ -179,7 +197,6 @@ const forgotPassword = async (req, res) => {
                     console.log('🔍 Token stored successfully, attempting to send email');
 
                     try {
-                        // Use the dedicated email service
                         const emailResult = await sendPasswordResetEmail(user, resetToken);
                         
                         if (emailResult.success) {
@@ -221,7 +238,10 @@ const forgotPassword = async (req, res) => {
     }
 };
 
-// RESET PASSWORD with token
+// ==========================================
+// RESET PASSWORD
+// ==========================================
+
 const resetPassword = async (req, res) => {
     try {
         console.log('🔍 Reset password function called');
@@ -250,7 +270,6 @@ const resetPassword = async (req, res) => {
             });
         }
 
-        // Find user with valid reset token
         const findUserQuery = `
             SELECT id, email, firstName, lastName, resetTokenExpiry 
             FROM users 
@@ -279,11 +298,9 @@ const resetPassword = async (req, res) => {
             const user = users[0];
 
             try {
-                // Hash new password
                 const salt = await bcrypt.genSalt(12);
                 const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-                // Update password and clear reset token
                 const updatePasswordQuery = `
                     UPDATE users 
                     SET password = ?, resetToken = NULL, resetTokenExpiry = NULL 
@@ -301,7 +318,6 @@ const resetPassword = async (req, res) => {
 
                     console.log('🔍 Password reset successful for user:', user.email);
                     
-                    // Send password change confirmation email
                     try {
                         const confirmationResult = await sendPasswordChangeConfirmation(user);
                         if (confirmationResult.success) {
@@ -311,12 +327,11 @@ const resetPassword = async (req, res) => {
                         }
                     } catch (confirmationError) {
                         console.error("❌ Confirmation email error:", confirmationError);
-                        // Don't fail the password reset if confirmation email fails
                     }
                     
                     res.json({
                         success: true,
-                        msg: 'Password has been reset successfully. You can now login with your new password. A confirmation email has been sent.'
+                        msg: 'Password has been reset successfully. You can now login with your new password.'
                     });
                 });
 

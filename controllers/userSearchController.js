@@ -578,9 +578,58 @@ const getSearchStats = (req, res) => {
   });
 };
 
+const getFeaturedFreelancers = (req, res) => {
+  const query = `
+    SELECT 
+      u.id,
+      u.firstName,
+      u.lastName,
+      u.email,
+      u.phone,
+      u.location,
+      js.title,
+      js.experience,
+      js.expectedSalary,
+      js.salaryCurrency,
+      js.bio,
+      js.availability,
+      js.cvFilePath,
+      js.createdAt
+    FROM users u
+    INNER JOIN job_seekers js ON u.id = js.userId
+    WHERE u.isFreelancer = TRUE 
+      AND js.title IS NOT NULL 
+      AND js.title != ''
+      AND js.title != 'null'
+    ORDER BY js.createdAt DESC
+    LIMIT 3
+  `;
+
+  db.query(query, [], (err, freelancers) => {
+    if (err) {
+      console.error('Featured freelancers error:', err);
+      return res.status(500).json({ 
+        success: false, 
+        msg: 'Error fetching featured freelancers',
+        error: err.message 
+      });
+    }
+
+    console.log(`✅ Found ${freelancers.length} featured freelancers`);
+
+    res.json({
+      success: true,
+      freelancers: freelancers || [],
+      count: freelancers.length
+    });
+  });
+};
+
+
 module.exports = {
   searchJobSeekers,
   getCandidateDetails,
   getSearchStats,
-  getProfessionalCategories
+  getProfessionalCategories,
+  getFeaturedFreelancers
 };

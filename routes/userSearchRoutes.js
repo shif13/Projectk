@@ -6,7 +6,8 @@ const {
   searchJobSeekers,
   getCandidateDetails,
   getSearchStats,
-  getProfessionalCategories
+  getProfessionalCategories, 
+  getFeaturedFreelancers
 } = require('../controllers/userSearchController');
 
 // Search job seekers - General search endpoint
@@ -20,5 +21,8 @@ router.get('/stats', getSearchStats);
 
 // Get professional categories
 router.get('/categories', getProfessionalCategories);
+
+// Get featured freelancers
+router.get('/featured', getFeaturedFreelancers);
 
 module.exports = router;

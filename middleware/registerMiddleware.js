@@ -17,12 +17,12 @@ const createDirectories = () => {
     [uploadDir, cvDir, certificateDir].forEach(dir => {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
-        console.log(`Created directory: ${dir}`);
+        console.log(`✅ Created directory: ${dir}`);
       }
     });
     return true;
   } catch (error) {
-    console.error('Error creating upload directories:', error);
+    console.error('❌ Error creating upload directories:', error);
     return false;
   }
 };
@@ -96,7 +96,7 @@ const upload = multer({
 
 // Upload fields middleware
 const uploadFields = (req, res, next) => {
-  console.log('Processing file upload...');
+  console.log('📤 Processing file upload...');
   
   const uploadMiddleware = upload.fields([
     { name: 'cvFile', maxCount: 1 },
@@ -105,7 +105,7 @@ const uploadFields = (req, res, next) => {
 
   uploadMiddleware(req, res, (err) => {
     if (err) {
-      console.error('Upload error:', err);
+      console.error('❌ Upload error:', err);
       
       if (err instanceof multer.MulterError) {
         switch (err.code) {
@@ -148,10 +148,10 @@ const uploadFields = (req, res, next) => {
     // Log successful uploads
     if (req.files) {
       if (req.files.cvFile) {
-        console.log('CV uploaded:', req.files.cvFile[0].filename);
+        console.log('✅ CV uploaded:', req.files.cvFile[0].filename);
       }
       if (req.files.certificateFiles) {
-        console.log('Certificates uploaded:', req.files.certificateFiles.length, 'files');
+        console.log('✅ Certificates uploaded:', req.files.certificateFiles.length, 'files');
       }
     }
 
@@ -159,9 +159,10 @@ const uploadFields = (req, res, next) => {
   });
 };
 
-// Validation middleware
+// Validation middleware for OLD COMBINED REGISTRATION (DEPRECATED)
 const validateRegistration = (req, res, next) => {
-  console.log('Validating registration data...');
+  console.log('⚠️ WARNING: Using deprecated validateRegistration. Use user creation via /api/users/create instead');
+  console.log('🔍 Validating registration data...');
   console.log('Body keys:', Object.keys(req.body || {}));
   
   const { userName, email, password, userType, firstName, lastName, companyName } = req.body;
@@ -183,13 +184,20 @@ const validateRegistration = (req, res, next) => {
   if (!password || password.length < 6) {
     errors.push('Password must be at least 6 characters long');
   }
-  if (!userType || !['jobseeker', 'recruiter'].includes(userType)) {
-    errors.push('Valid user type is required (jobseeker or recruiter)');
+  
+  // UPDATED: Support both 'recruiter' (old) and 'equipment_owner' (new)
+  if (!userType || !['jobseeker', 'recruiter', 'equipment_owner'].includes(userType)) {
+    errors.push('Valid user type is required (jobseeker, recruiter, or equipment_owner)');
   }
 
-  // Recruiter specific validation
+  // Recruiter specific validation (keep for backwards compatibility)
   if (userType === 'recruiter' && (!companyName || companyName.trim().length < 2)) {
     errors.push('Company name is required for recruiters');
+  }
+  
+  // Equipment owner specific validation (NEW)
+  if (userType === 'equipment_owner' && companyName && companyName.trim().length < 2) {
+    errors.push('Company name must be at least 2 characters');
   }
 
   // Username format validation
@@ -207,7 +215,27 @@ const validateRegistration = (req, res, next) => {
     });
   }
 
-  console.log('Validation passed for:', userType, 'user');
+  console.log('✅ Validation passed for:', userType, 'user');
+  next();
+};
+
+// NEW: Validation middleware for PROFILE CREATION ONLY
+const validateProfileCreation = (req, res, next) => {
+  console.log('🔍 Validating profile creation data...');
+  
+  // Get userId from token (set by auth middleware) or body (temporary for testing)
+  const userId = req.user?.userId || req.body.userId;
+  
+  if (!userId) {
+    cleanupUploadedFiles(req);
+    return res.status(401).json({
+      success: false,
+      msg: 'User authentication required. Please login first.'
+    });
+  }
+
+  // Profile data is optional, so we just log what we received
+  console.log('✅ Profile validation passed for user:', userId);
   next();
 };
 
@@ -232,11 +260,11 @@ const cleanupUploadedFiles = (req) => {
     filesToDelete.forEach(filePath => {
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
-        console.log('Cleaned up file:', filePath);
+        console.log('🗑️ Cleaned up file:', filePath);
       }
     });
   } catch (error) {
-    console.error('Error cleaning up files:', error.message);
+    console.error('❌ Error cleaning up files:', error.message);
   }
 };
 
@@ -247,8 +275,10 @@ const getFileUrl = (filePath, baseUrl = `http://localhost:${process.env.PORT || 
 };
 
 module.exports = {
-  uploadFields,
-  validateRegistration,
+  upload,                     // Export raw multer instance
+  uploadFields,               // For file uploads
+  validateRegistration,       // DEPRECATED - for backwards compatibility
+  validateProfileCreation,    // NEW - for profile creation
   cleanupUploadedFiles,
   getFileUrl
 };
