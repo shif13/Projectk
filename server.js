@@ -29,6 +29,10 @@ const { createTables } = require("./controllers/userController");
 const { createEquipmentTable } = require("./controllers/equipmentController");
 const { createReviewsTable } = require("./controllers/reviewController");
 
+// Cloudinary and file upload
+const uploadRoutes = require('./routes/uploadRoutes');
+
+
 const app = express();
 const PORT = process.env.PORT || 5550;
 
@@ -63,12 +67,11 @@ app.use("/api/login", loginRoutes);
 // Roles Routes (PROTECTED)
 app.use('/api/freelancer', freelancerRoutes);
 
-// ⚠️ FIXED: Use DIFFERENT paths to avoid conflicts
 // Equipment CRUD operations (owner managing their equipment)
-app.use("/api/equipment-owner", equipmentRoutes);  // For: create, update, delete equipment
+app.use("/api/equipment-owner", equipmentRoutes);  
 
 // Equipment Search/Browse (public access)
-app.use("/api/equipment", equipmentSearchRoutes);  // For: /search, /featured, /contact, etc.
+app.use("/api/equipment", equipmentSearchRoutes);
 
 // Search Routes (PUBLIC)
 app.use("/api/search", userSearchRoutes);
@@ -76,6 +79,9 @@ app.use("/api/search", userSearchRoutes);
 // Other Routes (PUBLIC)
 app.use("/api/contact", contactRoutes);
 app.use('/api/reviews', reviewRoutes);
+
+// File Upload Routes (PROTECTED)
+app.use('/api/upload', uploadRoutes);
 
 // ==========================================
 // ERROR HANDLERS

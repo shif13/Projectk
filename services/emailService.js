@@ -633,6 +633,69 @@ const verifyEmailConfig = async () => {
 };
 
 // ==========================================
+// 9. CONTACT EMAIL (to Candidate from Recruiter)
+// ==========================================
+const sendContactEmail = async (candidate, emailData) => {
+  const subject = emailData.subject || 'New Message from Recruiter';
+  
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #0d9488 0%, #06b6d4 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+        .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
+        .message-box { background: white; padding: 20px; border-left: 4px solid #0d9488; margin: 20px 0; border-radius: 5px; }
+        .button { display: inline-block; background: #0d9488; color: white !important; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+        hr { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1 style="margin: 0;">💼 New Message from Recruiter</h1>
+        </div>
+        <div class="content">
+          <h2>Hi ${candidate.firstName}!</h2>
+          
+          <p>You have received a new message from a recruiter on TalentConnect.</p>
+          
+          <div class="message-box">
+            <p><strong>From:</strong> ${emailData.senderInfo.name}</p>
+            <p><strong>Subject:</strong> ${emailData.subject}</p>
+            
+            <hr>
+            
+            <p><strong>Message:</strong></p>
+            <p style="white-space: pre-wrap;">${emailData.message}</p>
+          </div>
+          
+          <p><strong>Next Steps:</strong></p>
+          <ul>
+            <li>Review the message and opportunity details</li>
+            <li>Log in to your dashboard to view and respond</li>
+            <li>You can reply directly to ${emailData.senderInfo.email}</li>
+          </ul>
+          
+          <div style="text-align: center;">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/login" class="button">View in Dashboard</a>
+          </div>
+          
+          <p><strong>Pro Tip:</strong> Responding quickly to recruiter messages increases your chances of landing opportunities!</p>
+          
+          <p>Best regards,<br><strong>The TalentConnect Team</strong></p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  return await sendEmail(candidate.email, subject, html);
+};
+
+// ==========================================
 // EXPORTS
 // ==========================================
 module.exports = {
@@ -645,5 +708,6 @@ module.exports = {
   sendPasswordResetEmail,
   sendPasswordChangeConfirmation,
   verifyEmailConfig,
-  sendEquipmentAddedEmail
+  sendEquipmentAddedEmail,
+  sendContactEmail
 };

@@ -10,7 +10,14 @@ router.use(verifyToken);
 // GET freelancer profile
 router.get('/profile', freelancerController.getFreelancerProfile);
 
-// UPDATE freelancer profile (Cloudinary URLs in body, no file upload)
-router.put('/profile', freelancerController.updateFreelancerProfile);
+// UPDATE freelancer profile (with file uploads via Multer + Cloudinary)
+router.put(
+  '/profile', 
+  freelancerController.handleFileUploads, // Multer middleware for file handling
+  freelancerController.updateFreelancerProfile
+);
+
+// DELETE certificate from profile
+router.delete('/certificate', freelancerController.deleteCertificate);
 
 module.exports = router;

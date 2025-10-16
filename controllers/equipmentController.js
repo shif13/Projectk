@@ -83,23 +83,64 @@ const getEquipmentOwnerProfile = async (req, res) => {
 
         console.log(`📦 Found ${equipment ? equipment.length : 0} equipment items`);
 
-        // Parse equipment images JSON safely
+        // Parse equipment images JSON safely - FIXED FOR BUFFER/JSON
         const equipmentList = (equipment || []).map(eq => {
+          let parsedImages = [];
+          
+          console.log(`Processing equipment ${eq.id}:`, {
+            rawImagesType: typeof eq.equipmentImages,
+            isBuffer: Buffer.isBuffer(eq.equipmentImages),
+            rawValue: eq.equipmentImages
+          });
+          
           try {
-            return {
-              ...eq,
-              equipmentImages: eq.equipmentImages ? JSON.parse(eq.equipmentImages) : []
-            };
+            // Handle Buffer (MySQL JSON column returns Buffer in older Node.js versions)
+            if (Buffer.isBuffer(eq.equipmentImages)) {
+              const imageString = eq.equipmentImages.toString('utf8');
+              console.log(`Buffer converted to string for equipment ${eq.id}:`, imageString);
+              const parsed = JSON.parse(imageString);
+              parsedImages = Array.isArray(parsed) ? parsed : [];
+              console.log(`Parsed from Buffer for equipment ${eq.id}:`, parsedImages);
+            }
+            // Handle string (JSON stored as TEXT or VARCHAR)
+            else if (typeof eq.equipmentImages === 'string' && eq.equipmentImages.trim()) {
+              const parsed = JSON.parse(eq.equipmentImages);
+              parsedImages = Array.isArray(parsed) ? parsed : [];
+              console.log(`Parsed from string for equipment ${eq.id}:`, parsedImages);
+            }
+            // Handle array (already parsed by MySQL driver)
+            else if (Array.isArray(eq.equipmentImages)) {
+              parsedImages = eq.equipmentImages;
+              console.log(`Already array for equipment ${eq.id}:`, parsedImages);
+            }
+            // Handle object (MySQL JSON type already parsed to object)
+            else if (eq.equipmentImages && typeof eq.equipmentImages === 'object') {
+              // If it's an object but not an array, it might be already parsed JSON
+              parsedImages = Array.isArray(eq.equipmentImages) ? eq.equipmentImages : [];
+              console.log(`Object handled for equipment ${eq.id}:`, parsedImages);
+            }
+            else {
+              console.log(`No images or null for equipment ${eq.id}`);
+              parsedImages = [];
+            }
           } catch (parseError) {
             console.error('⚠️ Error parsing images for equipment:', eq.id, parseError.message);
-            return {
-              ...eq,
-              equipmentImages: []
-            };
+            console.error('Raw value was:', eq.equipmentImages);
+            parsedImages = [];
           }
+          
+          return {
+            ...eq,
+            equipmentImages: parsedImages
+          };
         });
 
         console.log('✅ Profile and equipment fetched successfully');
+        console.log('Final equipment list:', equipmentList.map(eq => ({
+          id: eq.id,
+          name: eq.equipmentName,
+          images: eq.equipmentImages
+        })));
 
         return res.status(200).json({
           success: true,
@@ -137,7 +178,7 @@ const updateEquipmentOwnerProfile = async (req, res) => {
 
     const { firstName, lastName, phone, email, location } = req.body;
 
-    console.log('📝 Updating profile for user:', userId);
+    console.log('🔄 Updating profile for user:', userId);
 
     // Validation
     const errors = [];

@@ -1,4 +1,4 @@
-// config/cloudinary.js
+// config/cloudinary.js - FIXED FOR PUBLIC ACCESS
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const multer = require('multer');
@@ -13,39 +13,22 @@ cloudinary.config({
 console.log('✅ Cloudinary configured for:', process.env.CLOUDINARY_CLOUD_NAME);
 
 // ==========================================
-// EQUIPMENT IMAGES STORAGE
+// CV STORAGE (PDF) - PUBLIC ACCESS
 // ==========================================
-
-const equipmentStorage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'profetch/equipment',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
-    transformation: [{ width: 1500, height: 1500, crop: 'limit', quality: 'auto' }]
-  }
-});
-
-const uploadEquipmentImages = multer({ 
-  storage: equipmentStorage,
-  limits: { fileSize: 5 * 1024 * 1024 } // 5MB per file
-});
-
-// ==========================================
-// FREELANCER CV STORAGE (PDF)
-// ==========================================
-
 const cvStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'profetch/cvs',
-    allowed_formats: ['pdf'],
-    resource_type: 'raw' // Important for PDFs
+    resource_type: 'raw', // For PDFs
+    access_mode: 'public', // IMPORTANT: Makes files publicly accessible
+    type: 'upload', // Ensures it's stored as public upload
+    allowed_formats: ['pdf']
   }
 });
 
 const uploadCV = multer({
   storage: cvStorage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf') {
       cb(null, true);
@@ -56,20 +39,19 @@ const uploadCV = multer({
 });
 
 // ==========================================
-// FREELANCER CERTIFICATES STORAGE
+// CERTIFICATES STORAGE (PDF/Images) - PUBLIC ACCESS
 // ==========================================
-
 const certificateStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: async (req, file) => {
-    // Determine resource type based on file mimetype
     const isPdf = file.mimetype === 'application/pdf';
     
     return {
       folder: 'profetch/certificates',
-      allowed_formats: ['jpg', 'jpeg', 'png', 'pdf'],
-      resource_type: isPdf ? 'raw' : 'image',
-      transformation: !isPdf ? [{ width: 1500, height: 1500, crop: 'limit', quality: 'auto' }] : undefined
+      resource_type: isPdf ? 'raw' : 'image', // Use 'raw' for PDFs, 'image' for images
+      access_mode: 'public', // IMPORTANT: Makes files publicly accessible
+      type: 'upload', // Ensures public storage
+      allowed_formats: isPdf ? ['pdf'] : ['jpg', 'jpeg', 'png']
     };
   }
 });
@@ -82,88 +64,42 @@ const uploadCertificates = multer({
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF, JPG, and PNG files are allowed for certificates'), false);
+      cb(new Error('Only PDF, JPG, and PNG files are allowed'), false);
     }
   }
 });
 
 // ==========================================
-// COMBINED FREELANCER UPLOAD
+// EQUIPMENT IMAGES STORAGE - PUBLIC ACCESS
 // ==========================================
-
-const uploadFreelancerFiles = multer({
-  storage: multer.memoryStorage() // We'll handle this manually
-}).fields([
-  { name: 'cvFile', maxCount: 1 },
-  { name: 'certificateFiles', maxCount: 5 }
-]);
-
-// Manual upload handler for freelancer files
-const uploadFreelancerToCloudinary = async (files) => {
-  const results = {
-    cvFilePath: null,
-    certificatesPath: []
-  };
-
-  try {
-    // Upload CV if provided
-    if (files.cvFile && files.cvFile[0]) {
-      const cvFile = files.cvFile[0];
-      const cvResult = await new Promise((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-          {
-            folder: 'profetch/cvs',
-            resource_type: 'raw',
-            format: 'pdf'
-          },
-          (error, result) => {
-            if (error) reject(error);
-            else resolve(result);
-          }
-        );
-        uploadStream.end(cvFile.buffer);
-      });
-      results.cvFilePath = cvResult.secure_url;
-      console.log('✅ CV uploaded to Cloudinary');
-    }
-
-    // Upload certificates if provided
-    if (files.certificateFiles && files.certificateFiles.length > 0) {
-      const certificatePromises = files.certificateFiles.map(file => {
-        return new Promise((resolve, reject) => {
-          const isPdf = file.mimetype === 'application/pdf';
-          const uploadStream = cloudinary.uploader.upload_stream(
-            {
-              folder: 'profetch/certificates',
-              resource_type: isPdf ? 'raw' : 'image',
-              transformation: !isPdf ? [{ width: 1500, height: 1500, crop: 'limit', quality: 'auto' }] : undefined
-            },
-            (error, result) => {
-              if (error) reject(error);
-              else resolve(result);
-            }
-          );
-          uploadStream.end(file.buffer);
-        });
-      });
-
-      const certificateResults = await Promise.all(certificatePromises);
-      results.certificatesPath = certificateResults.map(r => r.secure_url);
-      console.log(`✅ ${results.certificatesPath.length} certificate(s) uploaded to Cloudinary`);
-    }
-
-    return results;
-  } catch (error) {
-    console.error('❌ Cloudinary upload error:', error);
-    throw error;
+const equipmentStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'profetch/equipment',
+    resource_type: 'image',
+    access_mode: 'public', // IMPORTANT: Makes files publicly accessible
+    type: 'upload',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [
+      { 
+        width: 1500, 
+        height: 1500, 
+        crop: 'limit', 
+        quality: 'auto',
+        fetch_format: 'auto' // Automatically optimizes format
+      }
+    ]
   }
-};
+});
+
+const uploadEquipmentImages = multer({ 
+  storage: equipmentStorage,
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB per file
+});
 
 module.exports = {
   cloudinary,
-  uploadEquipmentImages,
   uploadCV,
   uploadCertificates,
-  uploadFreelancerFiles,
-  uploadFreelancerToCloudinary
+  uploadEquipmentImages
 };
