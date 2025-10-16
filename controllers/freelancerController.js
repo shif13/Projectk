@@ -1,7 +1,48 @@
-// controllers/freelancerController.js - Backend Upload (CORRECT APPROACH)
+// controllers/freelancerController.js - Local Multer Storage
 const { db } = require('../config/db');
 const { sendProfileCompletedEmail, sendProfileUpdateEmail } = require('../services/emailService');
-const { cloudinary } = require('../config/cloudinary');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Create uploads directories
+const uploadsDir = './uploads';
+const cvDir = './uploads/cvs';
+const certsDir = './uploads/certificates';
+
+[uploadsDir, cvDir, certsDir].forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+});
+
+// Multer local storage configuration
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    if (file.fieldname === 'cvFile') {
+      cb(null, cvDir);
+    } else if (file.fieldname === 'certificateFiles') {
+      cb(null, certsDir);
+    }
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only PDF and images allowed.'));
+    }
+  }
+});
 
 // Helper function to safely parse JSON
 const safeJsonParse = (jsonString, fallback = []) => {
@@ -122,9 +163,9 @@ const updateFreelancerProfile = async (req, res) => {
       });
     }
 
-    console.log('🔍 Update request for user:', userId);
-    console.log('📎 Files received:', req.files);
-    console.log('📝 Body received:', req.body);
+    console.log('📝 Update request for user:', userId);
+    console.log('📎 req.files:', req.files);
+    console.log('📋 Body received:', Object.keys(req.body));
 
     const { 
       firstName, 
@@ -140,24 +181,43 @@ const updateFreelancerProfile = async (req, res) => {
       bio, 
       availability,
       availableFrom,
-      existingCertificates // NEW: receive existing certificates from frontend
+      existingCertificates
     } = req.body;
 
-    // Parse existing certificates
+    // Parse existing certificates from request body
     let certificates = safeJsonParse(existingCertificates, []);
+    console.log('📜 Existing certificates from body:', certificates);
 
     // Handle uploaded CV
-    let cvFilePath = req.body.cvFilePath; // Keep existing if no new file
-    if (req.files && req.files.cvFile && req.files.cvFile[0]) {
-      cvFilePath = req.files.cvFile[0].path; // Cloudinary URL
+    let cvFilePath = req.body.cvFilePath; // Keep existing CV if no new upload
+    
+    if (req.files && req.files.cvFile && req.files.cvFile.length > 0) {
+      const cvFile = req.files.cvFile[0];
+      cvFilePath = `uploads/cvs/${cvFile.filename}`;
       console.log('✅ New CV uploaded:', cvFilePath);
+    } else {
+      console.log('ℹ️ No new CV uploaded. Existing CV:', cvFilePath || 'None');
     }
 
     // Handle uploaded certificates
     if (req.files && req.files.certificateFiles) {
-      const newCerts = req.files.certificateFiles.map(file => file.path); // Cloudinary URLs
-      certificates = [...certificates, ...newCerts];
-      console.log(`✅ ${newCerts.length} new certificate(s) uploaded`);
+      console.log('📦 Certificate files found:', req.files.certificateFiles.length);
+      
+      if (req.files.certificateFiles.length > 0) {
+        const certFiles = req.files.certificateFiles;
+        const newCerts = certFiles.map(file => {
+          const certPath = `uploads/certificates/${file.filename}`;
+          console.log('  - Certificate:', certPath);
+          return certPath;
+        });
+        
+        // Merge with existing certificates
+        certificates = [...certificates, ...newCerts];
+        console.log(`✅ ${newCerts.length} new certificate(s) uploaded`);
+        console.log('📜 Total certificates now:', certificates.length);
+      }
+    } else {
+      console.log('ℹ️ No new certificates uploaded. Existing count:', certificates.length);
     }
 
     // Validate required fields
@@ -229,13 +289,31 @@ const updateFreelancerProfile = async (req, res) => {
       console.log('✅ User table updated');
 
       // Check if profile exists
-      const checkProfileQuery = 'SELECT id FROM job_seekers WHERE userId = ?';
+      const checkProfileQuery = 'SELECT id, cvFilePath, certificatesPath FROM job_seekers WHERE userId = ?';
       const existingProfile = await new Promise((resolve, reject) => {
         db.query(checkProfileQuery, [userId], (err, results) => {
           if (err) return reject(err);
           resolve(results);
         });
       });
+
+      // Determine final CV path
+      let finalCvPath = cvFilePath;
+      if (!finalCvPath && existingProfile.length > 0) {
+        // Keep the existing CV from database if no new one uploaded
+        finalCvPath = existingProfile[0].cvFilePath;
+      }
+
+      // Determine final certificates
+      let finalCertificates = certificates;
+      if (existingProfile.length > 0 && certificates.length === 0) {
+        // If no new certificates and existing profile has certificates, keep them
+        const existingCerts = safeJsonParse(existingProfile[0].certificatesPath, []);
+        if (existingCerts.length > 0) {
+          finalCertificates = existingCerts;
+          console.log('ℹ️ Keeping existing certificates:', existingCerts.length);
+        }
+      }
 
       if (existingProfile.length > 0) {
         // UPDATE existing profile
@@ -256,8 +334,8 @@ const updateFreelancerProfile = async (req, res) => {
             bio ? bio.trim() : null,
             availability || 'available',
             availableFrom || null,
-            cvFilePath || null,
-            JSON.stringify(certificates),
+            finalCvPath || null,
+            JSON.stringify(finalCertificates),
             userId
           ], (err) => {
             if (err) return reject(err);
@@ -285,8 +363,8 @@ const updateFreelancerProfile = async (req, res) => {
             bio ? bio.trim() : null,
             availability || 'available',
             availableFrom || null,
-            cvFilePath || null,
-            JSON.stringify(certificates)
+            finalCvPath || null,
+            JSON.stringify(finalCertificates)
           ], (err) => {
             if (err) return reject(err);
             resolve();
@@ -295,6 +373,9 @@ const updateFreelancerProfile = async (req, res) => {
 
         console.log('✅ Profile created');
       }
+
+      console.log('📄 Final CV Path:', finalCvPath);
+      console.log('📜 Final Certificates:', finalCertificates);
 
       // Commit transaction
       await new Promise((resolve, reject) => {
@@ -370,26 +451,9 @@ const updateFreelancerProfile = async (req, res) => {
   }
 };
 
-// Multer middleware for handling file uploads
-const handleFileUploads = (req, res, next) => {
-  // Use multer to handle both CV and certificates
-  const upload = uploadCV.fields([
-    { name: 'cvFile', maxCount: 1 },
-    { name: 'certificateFiles', maxCount: 5 }
-  ]);
-
-  upload(req, res, (err) => {
-    if (err) {
-      console.error('❌ File upload error:', err);
-      return res.status(400).json({
-        success: false,
-        msg: err.message || 'File upload failed'
-      });
-    }
-    next();
-  });
-};
-
+// ==========================================
+// DELETE CERTIFICATE
+// ==========================================
 const deleteCertificate = async (req, res) => {
   try {
     const userId = req.user?.userId;
@@ -441,14 +505,12 @@ const deleteCertificate = async (req, res) => {
       }
 
       try {
-        // Extract public_id from Cloudinary URL
-        const urlParts = certificateUrl.split('/');
-        const filename = urlParts[urlParts.length - 1];
-        const publicId = `profetch/certificates/${filename.split('.')[0]}`;
-
-        // Delete from Cloudinary
-        await cloudinary.uploader.destroy(publicId, { resource_type: 'raw' });
-        console.log('✅ Deleted from Cloudinary:', publicId);
+        // Delete physical file
+        const filePath = path.join(__dirname, '..', certificateUrl);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          console.log('✅ File deleted from disk:', filePath);
+        }
 
         // Remove from array
         certificates = certificates.filter(cert => cert !== certificateUrl);
@@ -473,10 +535,10 @@ const deleteCertificate = async (req, res) => {
           });
         });
 
-      } catch (cloudinaryError) {
-        console.error('❌ Cloudinary deletion error:', cloudinaryError);
+      } catch (fileError) {
+        console.error('❌ File deletion error:', fileError);
         
-        // Still remove from database even if Cloudinary deletion fails
+        // Still remove from database even if file deletion fails
         certificates = certificates.filter(cert => cert !== certificateUrl);
         
         const updateQuery = 'UPDATE job_seekers SET certificatesPath = ? WHERE userId = ?';
@@ -490,7 +552,7 @@ const deleteCertificate = async (req, res) => {
 
           res.json({
             success: true,
-            msg: 'Certificate removed from profile (Cloudinary deletion failed)',
+            msg: 'Certificate removed from profile (file deletion failed)',
             certificates
           });
         });
@@ -509,6 +571,6 @@ const deleteCertificate = async (req, res) => {
 module.exports = {
   getFreelancerProfile,
   updateFreelancerProfile,
-  handleFileUploads,
-  deleteCertificate
+  deleteCertificate,
+  upload 
 };

@@ -10,10 +10,13 @@ router.use(verifyToken);
 // GET freelancer profile
 router.get('/profile', freelancerController.getFreelancerProfile);
 
-// UPDATE freelancer profile (with file uploads via Multer + Cloudinary)
+// UPDATE freelancer profile (with file uploads via Multer - Local Storage)
 router.put(
   '/profile', 
-  freelancerController.handleFileUploads, // Multer middleware for file handling
+  freelancerController.upload.fields([
+    { name: 'cvFile', maxCount: 1 },
+    { name: 'certificateFiles', maxCount: 5 }
+  ]),
   freelancerController.updateFreelancerProfile
 );
 
